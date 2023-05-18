@@ -1,0 +1,5 @@
+#Test files from development
+tst*.py
+
+#pycache
+__pychache__
