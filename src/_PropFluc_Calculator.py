@@ -66,14 +66,19 @@ class _PropFluc:
     #---- Model power spectra and variability
     ###########################################################################
     
-    def set_generativeVar(self, Fvd=0.1, Fvw=0.5, Fvh=0.01, Bd=0.05, Bw=0.001, Bh=20,
-                          md=0.5, mw=-3/2, mh=1):
+    def set_generativeVar(self, rv_max=-1, Fvd=0.1, Fvw=0.5, Fvh=0.01, Bd=0.05, 
+                          Bw=0.001, Bh=20, md=0.5, mw=-3/2, mh=1, hpfrac=1):
         """
         Sets the variability within each region and generates generateve
         frequency arrays
 
         Parameters
         ----------
+        rv_max : float, optional
+            Sets the maximum radius that generates variability
+            If -ve, then the entire flow is assumed to be varying
+            The default is -1
+            Units : Rg
         Fvd : float, optional
             Fractional variability per radial decade in the disc region.
             The default is 0.1.
@@ -101,7 +106,12 @@ class _PropFluc:
         mh : float, optional
             Generative frequency power-law index in the hot region. 
             The default is 1.
-
+        hpfrac : float, optional
+            Fraction of mdot fluctuations that propagate into the hot corona
+            This essentially re-scales the variance in the warm/disc power
+            spectrum before propogating into the hot corona
+            The defaults is 1
+        
         Returns
         -------
         None.
@@ -111,6 +121,13 @@ class _PropFluc:
         self.Fvd = Fvd
         self.Fvw = Fvw
         self.Fvh = Fvh
+        
+        if rv_max <= 0:
+            self.rv_max = self._agn.rout
+        else:
+            self.rv_max = rv_max
+        
+        self.hpfrac = hpfrac
         
         if len(self._agn.logr_ad_bins) > 1:
             rdm = 10**(self._agn.logr_ad_bins[:-1] - self._agn.dlogr_ad/2)
@@ -155,34 +172,37 @@ class _PropFluc:
         if self.fg_ad is None:
             self.pow_dsc_iann = np.zeros((len(self.fs), 1))
             self.pow_dsc_tann = np.zeros((len(self.fs), 1))
+            self.ACdsc = np.zeros(len(self.fs))
         else:
             AC, self.pow_dsc_iann, self.pow_dsc_tann = self._mod_regionPspec(
-                AC, self.fg_ad, self._agn.dlogr_ad, self.Fvd)
+                AC, self.fg_ad, self._agn.dlogr_ad, self.Fvd, 1)
+            self.ACdsc = AC
         
         #warm region
         if self.fg_wc is None:
             self.pow_wrm_iann = np.zeros((len(self.fs), 1))
             self.pow_wrm_tann = np.zeros((len(self.fs), 1))
+            self.ACwrm = np.zeros(len(self.fs))
         else:
             AC, self.pow_wrm_iann, self.pow_wrm_tann = self._mod_regionPspec(
-                AC, self.fg_wc, self._agn.dlogr_wc, self.Fvw)
+                AC, self.fg_wc, self._agn.dlogr_wc, self.Fvw, 1)
+            self.ACwrm = AC
         
         #Hot region
         if self.fg_hc is None:
             self.pow_hot_iann = np.zeros((len(self.fs), 1))
             self.pow_hot_tann = np.zeros((len(self.fs), 1))
+            self.AChot = np.zeros(len(self.fs))
         else:
             AC, self.pow_hot_iann, self.pow_hot_tann = self._mod_regionPspec(
-                AC, self.fg_hc, self._agn.dlogr_hc, self.Fvh)
-        
-        if AC is None:
-            AC = np.zeros(len(self.fs))
-        
-        self.AC = AC
-        return self.AC
+                AC, self.fg_hc, self._agn.dlogr_hc, self.Fvh, self.hpfrac)
+            self.AChot = AC
+            
+    
+        return self.ACdsc, self.ACwrm, self.AChot
     
     
-    def _mod_regionPspec(self, AC, fgs, dlogr, Fv):
+    def _mod_regionPspec(self, AC, fgs, dlogr, Fv, pfrac):
         """
         Calculates the power spec from a single spectral region
 
@@ -198,6 +218,8 @@ class _PropFluc:
             Radial grid spacing
         Fv : float
             Fractional variability per radial decade
+        pfrac : float
+            Fraction of variability that passes from one region to the next
 
         Returns
         -------
@@ -222,6 +244,9 @@ class _PropFluc:
 
             if i == 0 and AC is None:
                 AC = Anew
+            elif i == 0 and AC is not None:
+                XJ = fftconvolve(Anew, AC, mode='same')
+                AC = np.sqrt(pfrac) * XJ - np.sqrt(pfrac) * Anew + Anew
             else:
                 AC = fftconvolve(Anew, AC, mode='same')
             
@@ -267,7 +292,7 @@ class _PropFluc:
         """
         
         #Uses the model power-spectra to generate realisations
-        if hasattr(self, 'AC'):
+        if hasattr(self, 'AChot'):
             pass
         else:
             self.gene_mdotPspec()
@@ -284,7 +309,7 @@ class _PropFluc:
         xt_tot = None
         dti = None
         dttot = 0
-        if self.fg_ad is None or any(self.fg_ad) == 0:
+        if self.fg_ad is None:
             xt_dsc_tann = xt_dsc_iann
         else:
             xt_dsc_tann, dti, dttot = self._prop_xt(xt_tot, dti, xt_dsc_iann, 
@@ -293,7 +318,7 @@ class _PropFluc:
             xt_tot = xt_dsc_tann[:, -1]
         
         #warm region
-        if self.fg_wc is None or any(self.fg_wc) == 0:
+        if self.fg_wc is None:
             xt_wrm_tann = xt_wrm_iann
             xt_tot = None
         else:
@@ -304,15 +329,41 @@ class _PropFluc:
             dttot += dttot_wc
             
         #hot region
-        if self.fg_hc is None or any(self.fg_hc) == 0:
+        if self.fg_hc is None:
             xt_hot_tann = xt_hot_iann
             xt_tot = None
         else:
+            if self.hpfrac == 1 or xt_tot is None:
+                pass
+            else:
+                xt_tot = self._reScale_xtvar(xt_tot, self.hpfrac)
+            
             xt_hot_tann, dti, dttot_hc = self._prop_xt(xt_tot, dti, xt_hot_iann, 
-                                        fph*self.fg_hc, self._agn.logr_hc_bins, 
-                                        self._agn.dlogr_hc)
+                                    fph*self.fg_hc, self._agn.logr_hc_bins, 
+                                    self._agn.dlogr_hc)
+                
             dttot += dttot_hc
         
+        if np.amin(xt_dsc_tann) <= 0:
+            print('ARRRRGH! Too much variability in standard dsic. i.e Fvd'
+                  ' too big!!! mdot has gone negative - Reduce Fvd!')
+            print()
+            print('Exiting program - too much variability')
+            exit()
+        
+        if np.amin(xt_wrm_tann) <= 0:
+            print('ARRRRGH! Too much variability in warm Compton region. i.e Fvw'
+                  ' too big!!! mdot has gone negative - Reduce Fvw!')
+            print()
+            print('Exiting program - too much variability')
+            exit()
+        
+        if np.amin(xt_hot_tann) <= 0:
+            print('ARRRRGH! Too much variability in hot Compton region. i.e Fvh'
+                  ' too big!!! mdot has gone negative - Reduce Fvh')
+            print()
+            print('Exiting program - too much variability')
+            exit()
         
         return xt_dsc_tann, xt_wrm_tann, xt_hot_tann, dttot
     
@@ -343,9 +394,9 @@ class _PropFluc:
 
         """
         
-        rmids = 10**(log_rbins[:-1] - dlog_r/2)
-        drs = 10**(log_rbins[:-1]) - 10**(log_rbins[1:])
-
+        #rmids = 10**(log_rbins[:-1] - dlog_r/2)
+        #drs = 10**(log_rbins[:-1]) - 10**(log_rbins[1:])      
+        
         if xt_tot is None:
             xt_interp = interp1d(self.ts, xt_iann[:, 0], kind='linear',
                                  bounds_error=False, fill_value=1)
@@ -355,23 +406,46 @@ class _PropFluc:
         
         
         dttot = 0.
+        res_warning = False
         for i, fp in enumerate(fprp):
-            if dti is None:
-                xt_anni = xt_iann[:, i]
+            if fp == 0:
+                if i == 0:
+                    xt_tann = xt_iann[:, i]
+                else:
+                    xt_tann = np.column_stack((xt_tann, xt_iann[:, i]))
             else:
-                xt_anni = xt_interp(self.ts - dti) * xt_iann[:, i]
+                if dti is None:
+                    xt_anni = xt_iann[:, i]
+                else:
+                    xt_anni = xt_interp(self.ts - dti) * xt_iann[:, i]
             
-            #Updating interpolated xt
-            xt_interp = interp1d(self.ts, xt_anni, kind='linear',
+                #Updating interpolated xt
+                xt_interp = interp1d(self.ts, xt_anni, kind='linear',
                                  bounds_error=False, fill_value=1)
             
-            if i == 0:
-                xt_tann = xt_anni
-            else:
-                xt_tann = np.column_stack((xt_tann, xt_anni))
+                if i == 0:
+                    xt_tann = xt_anni
+                else:
+                    xt_tann = np.column_stack((xt_tann, xt_anni))
             
-            dti = (drs[i]/ rmids[i]) * (1/fp)
-            dttot += dti
+                dti = dlog_r * (1/fp)
+                dttot += dti
+            
+                if dti > self.dt and res_warning==False:
+                    print()
+                    print('-------------------------------------------------------')
+                    print('WARNING!!! Sampling frequency is higher than propagation'
+                          ' frequency!!! Either increase radial grid resolution,'
+                          f' currently {self._agn.dr_dex} bins per decade, or '
+                          f' reduce sampling time, currently {self.dt} s')
+                    
+                    print()
+                    print(f'Minimum needed resolution: {1/(fp*self.dt)} bins per decade')
+                    print()
+                    print('-------------------------------------------------------')
+                
+                
+                    res_warning = True
             
         
         
@@ -411,6 +485,10 @@ class _PropFluc:
         fgen = (1/(2*np.pi)) * r**(-3/2) #Keplerian frequency in c/Rg
         fgen *= B * r**(-m)
         fgen *= (self._agn.c/self._agn.Rg) #converting to Hz
+        
+        #now checking that below rv_max
+        fgen[r > self.rv_max] = 0
+        
         return fgen
     
     
@@ -507,6 +585,36 @@ class _PropFluc:
         return xt
     
     
+    def _reScale_xtvar(self, xt, frac):
+        """
+        Re-scales array containing time-sereies to new varaince
+        This is so we can consider case where not all variability propagates
+        into the hot corona
+
+        Parameters
+        ----------
+        xt : 2D-array
+            Contains times-series for each annulus from some region
+        frac : float
+            Fraction to scale the variance by
+            
+
+        Returns
+        -------
+        None.
+
+        """
+        var = np.var(xt, axis=0)
+        var_new = frac*var
+        
+        xt_new = (xt - np.mean(xt, axis=0))/np.sqrt(var)
+        xt_new *= np.sqrt(var_new)
+        xt_new += 1
+        return xt_new
+        
+        
+    
+    
     ###########################################################################
     #---- Plotting output - for de-bugging and testing reasons!!
     ###########################################################################
@@ -563,7 +671,7 @@ class _PropFluc:
 
         """
         
-        if hasattr(self, 'AC'):
+        if hasattr(self, 'AChot'):
             pass
         else:
             self.gene_mdotPspec()
@@ -579,21 +687,21 @@ class _PropFluc:
         else:
             for i in range(len(self.fg_ad)):
                 ax.loglog(self.fs, norm*self.fs*self.pow_dsc_iann[:, i], ls='-.', color='red')
-            ax.loglog(self.fs, norm*self.fs*self.pow_dsc_tann[:, -1], color='red')
+            ax.loglog(self.fs, norm*self.fs*self.ACdsc, color='red')
         
         if self.fg_wc is None:
             pass
         else:
             for i in range(len(self.fg_wc)):
                 ax.loglog(self.fs, norm*self.fs*self.pow_wrm_iann[:, i], ls='-.', color='green')
-            ax.loglog(self.fs, norm*self.fs*self.pow_wrm_tann[:, -1], color='green')
+            ax.loglog(self.fs, norm*self.fs*self.ACwrm, color='green')
         
         if self.fg_hc is None:
             pass
         else:
             for i in range(len(self.fg_hc)):
                 ax.loglog(self.fs, norm*self.fs*self.pow_hot_iann[:, i], ls='-.', color='blue')
-            ax.loglog(self.fs, norm*self.fs*self.pow_hot_tann[:, -1], color='blue')
+            ax.loglog(self.fs, norm*self.fs*self.AChot, color='blue')
         
         
         ax.set_xlabel('Frequency, f   (Hz)')
@@ -613,7 +721,7 @@ class _PropFluc:
         None.
 
         """
-        if hasattr(self, 'AC'):
+        if hasattr(self, 'AChot'):
             pass
         else:
             self.gene_mdotPspec()
@@ -640,7 +748,7 @@ class _PropFluc:
         ax = fig.add_subplot(111)
         
         ax.loglog(self.fs, self.fs*pow_tot, color='green')
-        ax.loglog(self.fs, self.fs*self.AC, color='k')
+        ax.loglog(self.fs, self.fs*self.AChot, color='k')
         
         #finding limits
         Tact = (self.N*self.dt) - dttot

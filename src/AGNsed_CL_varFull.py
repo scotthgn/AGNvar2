@@ -171,15 +171,15 @@ class AGNsed_CL_fullVar(AGNobject):
                                                            np.log10(self.rw)) #warm Compton
         self.logr_hc_bins, ddex_hc = self._make_rbins_even(np.log10(self.risco), 
                                                            np.log10(self.rh)) #hot compton    
-
         
+
         self.dlogr_ad = 1/ddex_ad
         self.dlogr_wc = 1/ddex_wc
         self.dlogr_hc = 1/ddex_hc
         
         #Initiating SED_calculator, Propfluc calculator, and Cloudy handler
         self.sed = _SpecCalc(self)
-        self.propfluc = _PropFluc(self, N=2**14, dt=0.01*24*3600)
+        self.propfluc = _PropFluc(self, N=2**14, dt=0.1*24*3600)
         self.cloudy = CLOUDY_object()
 
 
@@ -188,7 +188,7 @@ class AGNsed_CL_fullVar(AGNobject):
     #---- Intrinsic SED and variability
     ###########################################################################
     
-    def make_intrinsicSED(self):
+    def make_intrinsicSED(self, reprocess=True):
         """
         Calculates the intrinsic SED of the system (i.e disc+warm Compton+hot Compton).
         i.e no variability, re-processing, or wind contributions
@@ -203,12 +203,12 @@ class AGNsed_CL_fullVar(AGNobject):
         if hasattr(self, 'Lnu_disc'):
             pass
         else:
-            self.Lnu_disc = self.sed.disc_spec(reprocess=True)[:, 0]
+            self.Lnu_disc = self.sed.disc_spec(reprocess=reprocess)[:, 0]
         
         if hasattr(self, 'Lnu_warm'):
             pass
         else:
-            self.Lnu_warm = self.sed.warm_spec(reprocess=True)[:, 0]
+            self.Lnu_warm = self.sed.warm_spec(reprocess=reprocess)[:, 0]
         
         if hasattr(self, 'Lnu_hot'):
             pass
@@ -219,6 +219,7 @@ class AGNsed_CL_fullVar(AGNobject):
         self._add_SEDcomponent(self.Lnu_warm, 'warm')
         self._add_SEDcomponent(self.Lnu_hot, 'hot')
         
+        self._SED_rep = reprocess
         self.Lnu_intrinsic = self.Lnu_disc + self.Lnu_warm + self.Lnu_hot
         return self.Lnu_intrinsic
     
@@ -398,6 +399,8 @@ class AGNsed_CL_fullVar(AGNobject):
                             'kTseed_hot':ktseeds,
                             'Lseed_hot':Lseed,
                             'Ldiss_hot':Ldiss}
+        
+        self._reverb = reverberate #flag for use when extracting LCs later!!
         
         self.Ltot_var = self.Lintrinsic_var
         return self.Lintrinsic_var, dttot
@@ -912,9 +915,9 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         self.dr_dex = Ndex
-        self.__init__(self.M, self.dist, self.log_mdot, self.astar,
+        self.__init__(self.M, self.D, np.log10(self.mdot), self.a,
                       self.cos_inc, self.tau_t, self.kTw, self.gamma_w, 
-                      self.r_h, self.r_w, np.log10(self.rout), self.hmax, self.redshift)
+                      self.rh, self.rw, np.log10(self.rout), self.hmax, self.z)
         
         
     

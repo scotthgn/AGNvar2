@@ -665,9 +665,12 @@ class AGNobject:
         
         #MChecking if mean spec exists
         if hasattr(self, 'Lnu_tot'):
-            pass
+            if self._reverb == self._SED_rep:
+                pass
+            else:
+                self.make_intrinsicSED(reprocess=self._reverb)
         else:
-            self.make_intrinsicSED()
+            self.make_intrinsicSED(reprocess=self._reverb)
         
         
         #Extracting desired component
