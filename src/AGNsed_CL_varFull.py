@@ -348,7 +348,7 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         #Generating mdot realisations
-        print('Generating time-series')
+        self.verboseprint('Generating time-series')
         xt_dsc, xt_wrm, xt_hot, dttot = self.propfluc.gene_mdotRealisation(fpd, fpw, fph)
         fm_seed = self._gene_LseedFM(xt_dsc, xt_wrm, self.propfluc.ts)
         
@@ -357,7 +357,7 @@ class AGNsed_CL_fullVar(AGNobject):
         
         
         #Calculating spectral parameters
-        print('Calculating spectral parameters')
+        self.verboseprint('Calculating spectral parameters')
         Lseed = self.sed.calc_Lseed(fm_seed)
         Ldiss = self.sed.calc_Ldiss(xt_hot)
         gamma_hs = self.sed.calc_gammah(Ldiss, Lseed)
@@ -373,16 +373,16 @@ class AGNsed_CL_fullVar(AGNobject):
         Lx_wrmarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_wc_bins, 
                                                self.dlogr_wc)
         
-        print('Calculating SEDs')
+        self.verboseprint('Calculating SEDs')
         #Now calculating variable spectral components
         if len(self.logr_ad_bins) > 1:
-            print('Disc component...')
+            self.verboseprint('Disc component...')
             Ldisc_var = self.sed.disc_spec(xt_dsc, reprocess=reverberate, Lx=Lx_dscarr)
         else:
             Ldisc_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        print('Warm Compton component')
+        self.verboseprint('Warm Compton component')
         Lwarm_var = self.sed.warm_spec(xt_wrm, reprocess=reverberate, Lx=Lx_wrmarr)
-        print('Hot Compton component')
+        self.verboseprint('Hot Compton component')
         Lhot_var = self.sed.hot_spec(xt_hot, gamma=gamma_hs, kte=kths,
                                      kts=ktseeds, Lseed=Lseed)
         

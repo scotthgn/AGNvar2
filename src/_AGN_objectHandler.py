@@ -51,6 +51,7 @@ class AGNobject:
     
     #Stop all the run-time warnings (we know why they happen - doesn't affect the output!)
     warnings.filterwarnings('ignore') 
+    verbose = False
     
     def __init__(self,
                  M,
@@ -816,7 +817,10 @@ class AGNobject:
         return self.parvar_dict[par]
     
     
-    #Saving methods
+    ###########################################################################
+    #---- Other useful methods
+    ########################################################################### 
+    
     def save(self, fname):
         """
         Saves the class instance to an ASCII file using pickle
@@ -843,7 +847,16 @@ class AGNobject:
         agn_file.close()
     
     
+    def set_verbose(self):
+        self.verbose = True
     
+    def verboseprint(self, *args):
+        if self.verbose:
+            for arg in args:
+                print(arg)
+        
+        else:
+            return None
         
         
 if __name__ == '__main__':
