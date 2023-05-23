@@ -346,6 +346,7 @@ class _PropFluc:
         if np.amin(xt_dsc_tann) <= 0:
             print('ARRRRGH! Too much variability in standard dsic. i.e Fvd'
                   ' too big!!! mdot has gone negative - Reduce Fvd!')
+            print(f'Current value: {self.Fvd}')
             print()
             print('Exiting program - too much variability')
             exit()
@@ -353,6 +354,7 @@ class _PropFluc:
         if np.amin(xt_wrm_tann) <= 0:
             print('ARRRRGH! Too much variability in warm Compton region. i.e Fvw'
                   ' too big!!! mdot has gone negative - Reduce Fvw!')
+            print(f'Current value: {self.Fvw}')
             print()
             print('Exiting program - too much variability')
             exit()
@@ -360,6 +362,7 @@ class _PropFluc:
         if np.amin(xt_hot_tann) <= 0:
             print('ARRRRGH! Too much variability in hot Compton region. i.e Fvh'
                   ' too big!!! mdot has gone negative - Reduce Fvh')
+            print(f'Current value: {self.Fvh}')
             print()
             print('Exiting program - too much variability')
             exit()
