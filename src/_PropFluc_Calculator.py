@@ -290,7 +290,6 @@ class _PropFluc:
         None.
 
         """
-        
         #Uses the model power-spectra to generate realisations
         if hasattr(self, 'AChot'):
             pass
@@ -403,8 +402,7 @@ class _PropFluc:
         else:
             xt_interp = interp1d(self.ts, xt_tot, kind='linear',
                                  bounds_error=False, fill_value=1)
-        
-        
+
         dttot = 0.
         res_warning = False
         for i, fp in enumerate(fprp):

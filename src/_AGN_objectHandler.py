@@ -838,7 +838,8 @@ class AGNobject:
         """
         
         if fname.__contains__('.'):
-            fname, _ = fname.split('.')
+            sidx = fname.rindex('.')
+            fname = fname[:sidx]
         else:
             pass
         
