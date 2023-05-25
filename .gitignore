@@ -1,5 +1,7 @@
 #Test files from development
-tst*.py
+tst*.py 
+*.agn
+*TEST* 
 
 #pycache
 __pycache__
