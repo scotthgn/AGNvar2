@@ -35,7 +35,10 @@ class CLOUDY_object:
         """
         
         with open('run', 'w') as f:
-            f.write(f'{self._cloudy_path}/cloudy.exe -r $1')
+            if self._cloudy_path is None:
+                f.write('cloudy.exe -r $1') #useful when running on COSMA!!!
+            else:
+                f.write(f'{self._cloudy_path}/cloudy.exe -r $1')
         
         os.system('chmod +x run') #make executable
     
