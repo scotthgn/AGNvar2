@@ -388,6 +388,10 @@ class AGNsed_CL_fullVar(AGNobject):
         
         self.Lintrinsic_var = Ldisc_var + Lwarm_var + Lhot_var
         
+        #For Cloudy purposes later!!
+        self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
+        self.Lintrinsic_max = np.amax(self.Lintrinsic_var, axis=-1)
+        
         #Adding to VARdict
         self._add_varComponent(Ldisc_var, 'disc')
         self._add_varComponent(Lwarm_var, 'warm')
@@ -414,6 +418,39 @@ class AGNsed_CL_fullVar(AGNobject):
     #     (see next section) and the output loaded
     ###########################################################################
     
+    def _windSED_fromEmiss(self, ref_emiss):
+        """
+        Takes the wind emissivity calculated by cloudy, and applies wind
+        geometry in order to calculate observed SED
+
+        Parameters
+        ----------
+        ref_emiss : 2D array
+            Wind emissivity for each calculated cloudy grid
+
+        Returns
+        -------
+        Lref_tot : 1D-array
+            Reflected wind SED component, as seen by an observer
+
+        """
+        
+        phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
+        cos_bet = self._windVisibility(phi_w_mids)
+        
+        for i, dw in enumerate(self.dw_mids):
+            dA = self.dcos_thw * self.dphi_w * (dw*self.Rg)**2 #grid surface area
+            
+            Lr = ref_emiss[:, i] * dA * (cos_bet[:, np.newaxis]/0.5)
+            Lr = np.sum(Lr, axis=0)
+            
+            if i == 0:
+                Lref_tot = Lr
+            else:
+                Lref_tot = Lref_tot + Lr
+        
+        return Lref_tot
+    
     
     def make_windSED(self):
         """
@@ -437,21 +474,7 @@ class AGNsed_CL_fullVar(AGNobject):
             
             exit()
         
-
-        phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
-        cos_bet = self._windVisibility(phi_w_mids)
-        
-        for i, dw in enumerate(self.dw_mids):
-            dA = self.dcos_thw * self.dphi_w * (dw*self.Rg)**2 #grid surface area
-            
-            Lr = self._ref_emiss_mean[:, i] * dA * (cos_bet[:, np.newaxis]/0.5)
-            Lr = np.sum(Lr, axis=0)
-            
-            if i == 0:
-                Lref_tot = Lr
-            else:
-                Lref_tot = Lref_tot + Lr
-            
+        Lref_tot = self._windSED_fromEmiss(self._ref_emiss_mean)
         return Lref_tot
     
     
@@ -483,8 +506,21 @@ class AGNsed_CL_fullVar(AGNobject):
             
             exit()
         
+        Lref_min = self._windSED_fromEmiss(self.ref_emiss_min)
+        Lref_max = self._windSED_fromEmiss(self.ref_emiss_max)
+        
         phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
         cos_bet = self._windVisibility(phi_w_mids)
+        
+        """
+        for i, dw in enumerate(self.dw_mids):
+            tau_w = self._tau_wnd(i, phi_w_mids)
+            dA = self.dcos_thw * self.dphi_w * (dw * self.Rg)**2
+            for tau in tau_w:
+                tw = self.propfluc.ts - tau
+            
+        """  
+            
     
     
     def _windVisibility(self, phi_w_mids):
@@ -673,9 +709,19 @@ class AGNsed_CL_fullVar(AGNobject):
             else:
                 print('No variable intrinsic spectrum!!!! \n'
                       'Run .evolve_intrinsicSED FIRST!')
+                exit()
             
-            Lnu_min = np.amin(self.Lintrinsic_var, axis=-1)
-            Lnu_max = np.amax(self.Lintrinsic_var, axis=-1)
+            
+            #If old save file this wont have been stored...
+            #This only exists so I don't need to re-run the earlier models..!
+            if hasattr(self, 'Lintrinsic_min'):
+                pass
+            else:
+                self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
+                self.Lintrinsic_max = np.amax(self.Lintrinsic_var, axis=-1)
+            
+            Lnu_min = self.Lintrinsic_min
+            Lnu_max = self.Lintrinsic_max
             
             print('Running Cloudy for Lnu_min')
             self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, 
@@ -986,244 +1032,18 @@ class AGNsed_CL_fullVar(AGNobject):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     import astropy.units as u
-    
-    agn = AGNsed_CL_fullVar(
-        M = 1e8, 
-        dist = 100, 
-        log_mdot = -1,
-        astar = 0,
-        cos_inc = 0.9,
-        tau_t = 1,
-        kTe_warm = 0.2,
-        gamma_warm = 2.5,
-        r_hot = 10,
-        r_warm = 2000,
-        log_rout = -1,
-        hmax = 10,
-        redshift = 0)
-    
-    agn.propfluc.set_generativeVar(Fvd=0.1, 
-                                   Fvw=0.5, 
-                                   Fvh=0.8, 
-                                   Bd=0.05, 
-                                   Bw=0.01, 
-                                   Bh=20,
-                                   md=0.5, 
-                                   mw=-3/2,
-                                   mh=1)
-    """
-    agn.propfluc.plot_fgen()
-    agn.propfluc.plot_modPspec()
-    
-    
-    #agn._tau_cor2dsc(100)
-    Lall, dttot = agn.evolve_intrinsicSED(reverberate=False)
-    #agn.defineWindGeom()
-    #agn.evolve_windSED()
-    
-    wuv = 1989 * u.AA
-    euv = wuv.to(u.keV, equivalencies=u.spectral()).value
-    
-    luv = agn.get_Lcurve(euv, 1e-3)
-    lxr = agn.get_Lcurve(5.75, 4.25)
-    
-    ts = agn.propfluc.ts
-    
-    plt.plot(ts, lxr, color='blue')
-    plt.plot(ts, luv, color='green')
-    plt.axvline(dttot, ls='-.', color='red')
-    plt.show()
-    
-    
-    #making uv power-spec
-    FTuv = np.fft.rfft(luv, n=len(luv), norm='forward')
-    FTuv = np.concatenate((np.conj(FTuv[1:]), FTuv))
-    
-    pow_uv = np.conj(FTuv) * FTuv
-    
-    plt.loglog(agn.propfluc.fs, agn.propfluc.fs*pow_uv)
-    f_min = agn.propfluc.N*agn.propfluc.dt - dttot
-    plt.axvline(1/f_min, ls='-.', color='red')
-    f_nyq = 1/(2*agn.propfluc.dt)
-    plt.axvline(0.5*f_nyq, ls='-.', color='red')
-    plt.show()
-    
-    indx = np.random.randint(0, len(Lall[0, :]), 100)
-    for ind in indx:
-        plt.loglog(agn.Egrid, agn.nu_grid*Lall[:, ind], color='C1', alpha=0.2)
-    
-    Lmean = agn.make_intrinsicSED()
-    plt.loglog(agn.Egrid, agn.nu_grid*Lmean, color='k')
-    
-    plt.axvspan(euv-1e-3/2, euv+1e-3/3, alpha=0.5)
-    
-    plt.ylim(1e42, 1e45)
-    plt.xlim(1e-3, 1e3)
-    plt.show()
-    """
-    
-    #Evolving SED
-    Lall, dttot = agn.evolve_intrinsicSED(reverberate=False, fpw=10, fph=10)
-    
-    #Getting Lcurves
-    wuv = 1989 * u.AA
-    euv = wuv.to(u.keV, equivalencies=u.spectral()).value
-    
-    luv = agn.get_Lcurve(euv, 1e-3)
-    lxr = agn.get_Lcurve(5.75, 4.25)  
-    ts = agn.propfluc.ts
-    
-    #Getting mdot time-series
-    xt_hot = agn.xt_hot[:, -1]
-    xt_wrm = agn.xt_wrm[:, -1]
-    
-    #Getting mdot power-spectrum
-    pow_mod_hot = agn.propfluc.pow_hot_tann[:, -1]
-    pow_mod_wrm = agn.propfluc.pow_wrm_tann[:, -1]
-    
-    
-    #Creating power-spectra from model
-    FTuv = np.fft.rfft(luv, len(luv), norm='forward')
-    FTuv = np.concatenate((np.conj(FTuv[1:]), FTuv))
-    
-    FTxr = np.fft.rfft(lxr, len(lxr), norm='forward')
-    FTxr = np.concatenate((np.conj(FTxr[1:]), FTxr))
-    
-    FThc = np.fft.rfft(xt_hot, len(xt_hot), norm='forward')
-    FThc = np.concatenate((np.conj(FThc[1:]), FThc))
-    
-    FTwc = np.fft.rfft(xt_wrm, len(xt_wrm), norm='forward')
-    FTwc = np.concatenate((np.conj(FTwc[1:]), FTwc))
-    
-    pow_uv = np.conj(FTuv) * FTuv
-    pow_xr = np.conj(FTxr) * FTxr
-    pow_hc = np.conj(FThc) * FThc
-    pow_wc = np.conj(FTwc) * FTwc
-    
-    ffs = agn.propfluc.fs
-    
-    
-    #defining and creating figure
-    fig1 = plt.figure(figsize=(15, 15))
-    grd1 = plt.GridSpec(4, 3, hspace=0, wspace=0)
-    
-    mpax = fig1.add_subplot(grd1[:2, 0]) #mdot power-spec
-    lpax = fig1.add_subplot(grd1[:2, 1], sharey=mpax) #LC power-spec
-    sax = fig1.add_subplot(grd1[:2, 2]) #SED axis
-    xax = fig1.add_subplot(grd1[2, :]) #mdot time-series
-    lax = fig1.add_subplot(grd1[3, :], sharex=xax) #LC axis
-    
-    
-    mpax.loglog(ffs, ffs*pow_wc, color='green')
-    mpax.loglog(ffs, ffs*pow_hc, color='blue', alpha=0.5)
-    mpax.loglog(ffs, ffs*pow_mod_wrm, color='k')
-    mpax.loglog(ffs, ffs*pow_mod_hot, color='k')
-    
-    lpax.loglog(ffs, ffs*pow_uv, color='green')
-    lpax.loglog(ffs, ffs*pow_xr, color='blue', alpha=0.5)
-    
-    
-    f_min = agn.propfluc.N*agn.propfluc.dt - dttot
-    f_max = 0.5*(1/(2*agn.propfluc.dt))
-    
-    mpax.axvline(1/f_min, ls='-.', color='red')
-    mpax.axvline(f_max, ls='-.', color='red')
-    lpax.axvline(1/f_min, ls='-.', color='red')
-    lpax.axvline(f_max, ls='-.', color='red')
-    
-    
-    indx = np.random.randint(0, len(Lall[0, :]), 100)
-    for ind in indx:
-        sax.loglog(agn.Egrid, agn.nu_grid*Lall[:, ind], color='C1', alpha=0.2)
-    
-    Lmean = agn.make_intrinsicSED()
-    sax.loglog(agn.Egrid, agn.nu_grid*Lmean, color='k')
-    sax.set_ylim(1e42, 1e45)
-    sax.set_xlim(1e-3, 1e3)
-    
-    sax.axvspan(euv-1e-3, euv+1e-3, alpha=0.5, color='green')
-    sax.axvspan(5.75-4.25, 5.75+4.25, alpha=0.5, color='blue')
-    
-    
-    xax.plot(ts, xt_hot, color='blue', alpha=0.5)
-    xax.plot(ts, xt_wrm, color='green')
-    xax.axvline(dttot, ls='-.', color='red')
-    
-    lax.plot(ts, lxr, color='blue', alpha=0.5)
-    lax.plot(ts, luv, color='green')
-    lax.axvline(dttot, ls='-.', color='red')
-    
-    
-    
-    mpax.set_ylabel(f'fP(f)   (2T/$\mu^{2}$) $(\sigma/\mu)^{2}$')
-    mpax.xaxis.tick_top()
-    mpax.xaxis.set_label_position('top')
-    mpax.set_xlabel('Frequency, f   (Hz)')
-    mpax.text(s='mdot power-spec', x=0.1, y=0.05, transform=mpax.transAxes)
-    
-    lpax.tick_params(axis='y', which='both', direction='inout', labelsize=0,
-                     labelcolor='white')
-    lpax.xaxis.tick_top()
-    lpax.xaxis.set_label_position('top')
-    lpax.set_xlabel('Frequency, f   (Hz)')
-    lpax.text(s='LC power-spec', x=0.1, y=0.05, transform=lpax.transAxes)
-    
-    sax.xaxis.tick_top()
-    sax.xaxis.set_label_position('top')
-    sax.set_xlabel('Energy   (keV)')
-    sax.yaxis.tick_right()
-    sax.yaxis.set_label_position('right')
-    sax.set_ylabel('EF(E)   ergs/s')
-    
-    xax.tick_params(axis='x', direction='inout', labelcolor='white', labelsize=0)
-    xax.set_ylabel(r'$\dot{m} (t)/\dot{m}_{0}$')
-    
-    lax.set_ylabel(r'$F/\langle F \rangle$')
-    lax.set_xlabel('Time   (s)')
-    
-    
-    
-    #plt.show()
-    
-    
-    
-    fig2 = plt.figure(figsize=(15, 6))
-    ax2 = fig2.add_subplot(111)
-    xt_wrm_iann = agn.propfluc.xt_wrm_iann
-    for i in range(len(xt_wrm_iann[0, :])):
-        ax2.plot(ts, xt_wrm_iann[:, i], alpha=0.5)
-    
-    ax2.set_ylabel(r'$\dot{m}(t)/\dot{m}_{0}$   (Warm Region)')
-    ax2.set_xlabel('Time   (s)')
-    
-    
-    fig3 = plt.figure(figsize=(15, 6))
-    ax3 = fig3.add_subplot(111)
-    xt_hot_iann = agn.propfluc.xt_hot_iann
-    for i in range(len(xt_hot_iann[0, :])):
-        ax3.plot(ts, xt_hot_iann[:, i], alpha=0.5)
-    
-    ax3.set_ylabel(r'$\dot{m}(t)/\dot{m}_{0}$   (Hot Region)')
-    ax3.set_xlabel('Time   (s)')
-    
-    
-    fig4 = plt.figure(figsize=(6, 6))
-    ax4 = fig4.add_subplot(111)
-    
-    fg_hot = agn.propfluc.fg_hc
-    fg_wrm = agn.propfluc.fg_wc
-    
-    rhs = 10**(agn.logr_hc_bins[:-1] - agn.dlogr_hc/2)
-    rws = 10**(agn.logr_wc_bins[:-1] - agn.dlogr_wc/2)
-    
-    ax4.loglog(rws, fg_wrm, color='green')
-    ax4.loglog(rhs, fg_hot, color='blue')
-    
-    ax4.set_ylabel('Generator frequency   (Hz)')
-    ax4.set_xlabel('Radius (Rg)')
-    
-    
-    plt.show()
+    import pickle
+    
+    #For testing Cloudy var
+    #First loading object from Cosma run
+    fname = 'AGN_rv_max=200.0_Fvd=0.0_Fvw=0.6_Fvh=0.5_Bd=1e-06_Bw=5e-05_'
+    fname += 'Bh=1.0_md=0.5_mw=-1.5_mh=1.0_hpfrac=0.02_fpw=100000.0_fph=10.agn'
+    with open(fname, 'rb') as fagn:
+        agn = pickle.load(fagn)
+    
+    agn.defineWindGeom(alpha_l=60)
+    #Running...
+    agn.runCLOUDYmod(log_hden=13, log_Nh=23, mode='var')
     
     
     
