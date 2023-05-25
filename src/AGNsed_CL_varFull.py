@@ -698,6 +698,7 @@ class AGNsed_CL_fullVar(AGNobject):
             else:
                 self.make_intrinsicSED()
             
+            print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
                                   simname='Lmean_run', Ncpu=Ncpu, outdir=outdir)
             
