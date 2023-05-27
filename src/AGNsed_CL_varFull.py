@@ -479,7 +479,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     
-    def evolve_windSED(self):
+    def evolve_windSED(self, Ncpu='max-1'):
         """
         Calculates the time-dependent wind SED emission. Note - the Cloudy
         simulatin must have been RUN and LOADED for this method to work!!!
@@ -488,6 +488,22 @@ class AGNsed_CL_fullVar(AGNobject):
         is more or less the same as from the hot corona
         (yes, technically not really the case - however most of the variability
          should arise from this region, so it works as an approximation)
+        
+        Parameters
+        ----------
+        Ncpu : str or int
+            Number of cpu cores to use
+            If int : treated as explicit number of CPU cores
+                    Note, if more than max available cores, then will reduce
+                    to maximum available on system
+            
+            If 'max' : Will use system max 
+            
+            If 'max-<int>' : Will use system max - int (e.g 1 or 2 etc)
+                    Note, if int >= max, will default to 1 core as cannot use
+                    negative number of cores...
+            
+            The default is 'max-1'
 
         Returns
         -------
@@ -505,22 +521,120 @@ class AGNsed_CL_fullVar(AGNobject):
                   ' .runCLOUDYmod')
             
             exit()
+            
+        #If old save file this wont have been stored...
+        #This only exists so I don't need to re-run the earlier models..!
+        if hasattr(self, 'Lintrinsic_min'):
+            pass
+        else:
+            self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
+            self.Lintrinsic_max = np.amax(self.Lintrinsic_var, axis=-1)
         
-        Lref_min = self._windSED_fromEmiss(self.ref_emiss_min)
-        Lref_max = self._windSED_fromEmiss(self.ref_emiss_max)
+
+        didxs = np.arange(0, len(self.dw_mids), 1)
+ 
+        print('Evolving wind...')
+        #Setting up pool object
+        Ncpu = self._getNcpu(Ncpu)
+        pool = Pool(Ncpu)
+        Lref_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
+        for lann in pool.imap_unordered(self._calc_windLum_ann, didxs):
+            Lref_var += lann
+        
+        
+        self.Lref_var = Lref_var
+        self._add_varComponent(Lref_var, 'wind_ref')
+        
+        return self.Lref_var
+
+    
+    def _calc_windLum_ann(self, didx):
+        """
+        Calculates the wind luminosity from one annulus
+
+        Parameters
+        ----------
+        didx : int
+            Current radial index for wind
+
+        Returns
+        -------
+        None.
+
+        """
         
         phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
         cos_bet = self._windVisibility(phi_w_mids)
+        dA = self.dcos_thw * self.dphi_w * (self.dw_mids[didx]*self.Rg)**2
         
+        Lr_ann = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
+        for j, phi in tqdm(enumerate(phi_w_mids), total=len(phi_w_mids), desc=f'Calculting for didx {didx}'):
+            ref_grd = self._get_emiss_t_grd(didx, phi)
+            lr = ref_grd * dA * (cos_bet[j]/0.5)
+            Lr_ann += lr
+        
+        return Lr_ann
+        
+    
+    
+        
+    def _get_emiss_t_grd(self, didx, phi):
         """
-        for i, dw in enumerate(self.dw_mids):
-            tau_w = self._tau_wnd(i, phi_w_mids)
-            dA = self.dcos_thw * self.dphi_w * (dw * self.Rg)**2
-            for tau in tau_w:
-                tw = self.propfluc.ts - tau
+        Calculates the time-dependent emissivity from a Cloudy grid point
+        in the wind
+
+        Parameters
+        ----------
+        didx : int
+            The current radial index for the wind grid
+        phi : float
+            Azimuthal midtpoint in grid
+
+        Returns
+        -------
+        ref_emiss : 2D-array
+            Time-dependent reflected emissivity for grid point
+            Has shape (len(Egrid), len(ts))
+
+        """
+        
+        #Caclulating SED seen by wind at time t
+        tauw = self._tau_wnd(didx, phi)
+        tw = self.propfluc.ts - tauw
+        tmax = tw[-1]
+        
+        idx_close = np.argmin(abs(self.propfluc.ts - tauw))
+        if tauw >= self.propfluc.ts[idx_close]:
+            idx1 = idx_close
+            idx2 = idx_close + 1
             
-        """  
+        else:
+            idx1 = idx_close-1
+            idx2 = idx_close
             
+        intrp_fac = (tauw-self.propfluc.ts[idx2])/(self.propfluc.ts[idx1] - self.propfluc.ts[idx2])
+        
+        idx_i = np.argwhere(self.propfluc.ts <= tmax)
+
+        Lw_in = self.Lintrinsic_var[:, idx_i] * intrp_fac
+        Lw_in += (1-intrp_fac) * self.Lintrinsic_var[:, idx_i+1]
+        Lw_in = Lw_in[:, :, 0] #reducing dimensions (last one is introduced by argwhere and is useless!)
+        
+        Lw_in_m = np.ndarray((len(self.Egrid), len(tw[tw<=0])))
+        Lw_in_m[:, :] = self.Lnu_intrinsic[:, np.newaxis]
+        
+        Lw_in = np.hstack((Lw_in_m, Lw_in))
+        
+        
+        #Calculating emissivity at grid at time t
+        Sfac = (Lw_in - self.Lintrinsic_max[:, np.newaxis])
+        Sfac /= (self.Lintrinsic_min[:, np.newaxis] - self.Lintrinsic_max[:, np.newaxis])
+        Sfac = np.ma.masked_invalid(Sfac) #Masking Nan values (usually at edge where we have divide by 0!)
+        
+        ref_emiss = Sfac * self._ref_emiss_min[:, didx, np.newaxis]
+        ref_emiss += (1-Sfac)*self._ref_emiss_max[:, didx, np.newaxis]
+        
+        return ref_emiss
     
     
     def _windVisibility(self, phi_w_mids):
@@ -529,12 +643,12 @@ class AGNsed_CL_fullVar(AGNobject):
 
         Parameters
         ----------
-        phi_w_mids : array
+        phi_w_mids : array or float
             The azimuths
 
         Returns
         -------
-        cos_bet : array
+        cos_bet : array or float
             The wind visibility
 
         """
@@ -548,7 +662,13 @@ class AGNsed_CL_fullVar(AGNobject):
             #if alpha_l=90 => cylindrical geometry!!
             cos_bet = -np.cos(phi_w_mids)*np.sin(self.inc)
         
-        cos_bet[cos_bet <= 0] = 0 #setting 0 visibility if looking through point
+        if isinstance(cos_bet, np.ndarray):
+            cos_bet[cos_bet <= 0] = 0 #setting 0 visibility if looking through point
+        else:
+            if cos_bet <= 0:
+                cos_bet = 0
+            else:
+                pass
         
         return cos_bet
     
@@ -573,9 +693,12 @@ class AGNsed_CL_fullVar(AGNobject):
         
         rw = self.rw_mids[didx]
         hw = self.hw_mids[didx]
+
+        #tau_wnd = np.sqrt(rw**2 + (hw - self.hmax)**2)
+        #tau_wnd += (self.hmax - hw)*self.cos_inc
         
-        tau_wnd = np.sqrt(rw**2 + (hw - self.hmax)**2)
-        tau_wnd += (self.hmax - hw)*self.cos_inc
+        tau_wnd = np.sqrt(rw**2 + (hw)**2)
+        tau_wnd += (-hw)*self.cos_inc
         tau_wnd -= rw * np.sin(self.inc)*np.cos(phi_w)
         tau_wnd *= (self.Rg/self.c)
 
@@ -658,6 +781,22 @@ class AGNsed_CL_fullVar(AGNobject):
             mean => single CL run on mean intrinsic SED
             var => Runs CL for time-dependent intrinsic SED. Same number of
                 outputs as points in time-series used to generate initial SEDs
+        outdir : str
+            Output directory
+        Ncpu : str or int
+            Number of cpu cores to use
+            If int : treated as explicit number of CPU cores
+                    Note, if more than max available cores, then will reduce
+                    to maximum available on system
+            
+            If 'max' : Will use system max 
+            
+            If 'max-<int>' : Will use system max - int (e.g 1 or 2 etc)
+                    Note, if int >= max, will default to 1 core as cannot use
+                    negative number of cores...
+            
+            The default is 'max-1'
+            
         
         Returns
         -------
@@ -1044,8 +1183,35 @@ if __name__ == '__main__':
     
     agn.defineWindGeom(alpha_l=60)
     #Running...
-    agn.runCLOUDYmod(log_hden=13, log_Nh=23, mode='var')
+    #agn.runCLOUDYmod(log_hden=13, log_Nh=23, mode='var')
+    agn.loadCL_run(outdir='CL_tstRun', which='mean')
+    agn.loadCL_run(outdir='CL_tstRun', which='min')
+    agn.loadCL_run(outdir='CL_tstRun', which='max')
+    
+    Lwnd = agn.make_windSED()
+    Ltot = agn.make_intrinsicSED()
+    
+    agn.evolve_windSED(Ncpu=2)
     
     
+    """
+    Lwmin = agn._windSED_fromEmiss(agn._ref_emiss_min)
+    Lwmax = agn._windSED_fromEmiss(agn._ref_emiss_max)
+    
+    #Ltot = agn.Lnu_intrinsic
+    
+    plt.loglog(agn.E_obs, agn.nu_obs*Ltot, color='green', ls='-.')
+    
+    plt.loglog(agn.E_obs, agn.nu_obs*Lwmax, color='magenta', ls='-.')
+    plt.loglog(agn.E_obs, agn.nu_obs*Lwmin, color='blue', ls='-.')
+    plt.loglog(agn.E_obs, agn.nu_obs*Lwnd, color='red', ls='-.')
+    
+    
+    plt.loglog(agn.E_obs, agn.nu_obs*(Ltot+Lwnd), color='k')
+    
+    plt.ylim(1e42, 1e45)
+    plt.show()
+    
+    """
     
     
