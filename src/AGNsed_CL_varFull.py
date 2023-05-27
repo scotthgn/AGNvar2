@@ -530,6 +530,12 @@ class AGNsed_CL_fullVar(AGNobject):
             self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
             self.Lintrinsic_max = np.amax(self.Lintrinsic_var, axis=-1)
         
+        #Also need to check if Lnu_intrinsic exists - for when time delay greater than t!!
+        if hasattr(self, 'Lnu_intrinsic'):
+            pass
+        else:
+            self.make_intrinsicSED(reprocess=self._reverb)
+        
 
         didxs = np.arange(0, len(self.dw_mids), 1)
  
