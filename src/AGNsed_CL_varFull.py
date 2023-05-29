@@ -475,6 +475,7 @@ class AGNsed_CL_fullVar(AGNobject):
             exit()
         
         Lref_tot = self._windSED_fromEmiss(self._ref_emiss_mean)
+        self._add_SEDcomponent(Lref_tot, 'wind_ref')
         return Lref_tot
     
     
@@ -1173,51 +1174,5 @@ class AGNsed_CL_fullVar(AGNobject):
 
 
 
-
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import astropy.units as u
-    import pickle
-    
-    #For testing Cloudy var
-    #First loading object from Cosma run
-    fname = 'AGN_rv_max=200.0_Fvd=0.0_Fvw=0.6_Fvh=0.5_Bd=1e-06_Bw=5e-05_'
-    fname += 'Bh=1.0_md=0.5_mw=-1.5_mh=1.0_hpfrac=0.02_fpw=100000.0_fph=10.agn'
-    with open(fname, 'rb') as fagn:
-        agn = pickle.load(fagn)
-    
-    agn.defineWindGeom(alpha_l=60)
-    #Running...
-    #agn.runCLOUDYmod(log_hden=13, log_Nh=23, mode='var')
-    agn.loadCL_run(outdir='CL_tstRun', which='mean')
-    agn.loadCL_run(outdir='CL_tstRun', which='min')
-    agn.loadCL_run(outdir='CL_tstRun', which='max')
-    
-    Lwnd = agn.make_windSED()
-    Ltot = agn.make_intrinsicSED()
-    
-    agn.evolve_windSED(Ncpu=2)
-    
-    
-    """
-    Lwmin = agn._windSED_fromEmiss(agn._ref_emiss_min)
-    Lwmax = agn._windSED_fromEmiss(agn._ref_emiss_max)
-    
-    #Ltot = agn.Lnu_intrinsic
-    
-    plt.loglog(agn.E_obs, agn.nu_obs*Ltot, color='green', ls='-.')
-    
-    plt.loglog(agn.E_obs, agn.nu_obs*Lwmax, color='magenta', ls='-.')
-    plt.loglog(agn.E_obs, agn.nu_obs*Lwmin, color='blue', ls='-.')
-    plt.loglog(agn.E_obs, agn.nu_obs*Lwnd, color='red', ls='-.')
-    
-    
-    plt.loglog(agn.E_obs, agn.nu_obs*(Ltot+Lwnd), color='k')
-    
-    plt.ylim(1e42, 1e45)
-    plt.show()
-    
-    """
     
     

@@ -611,7 +611,7 @@ class AGNobject:
         
         
         
-    def get_Lcurve(self, band, band_width, as_frac=True, fuvs=None, 
+    def get_Lcurve(self, band, band_width, as_frac=True, 
                    band_units='keV', component='all'):
         """
         Extracts a light-curve from the set of time-dependent SEDs. Uses a
@@ -634,13 +634,9 @@ class AGNobject:
             If True, then output is normalised by the mean SED, so units F/Fmean
             If False, then output has the currently set units (i.e ergs/s/Hz, etc)
             The default is True.
-        fuvs : array, optional
-            FUV light-curve - in case evolve_spec has not been run yet
-            Units : F/Fmean
-            The default is None.
         band_units : {'keV', 'Hz', 'AA'}, optional
             The band-pass units. Note AA is Angstrom. The default is 'keV'.
-        component : str, optional
+        component : {'all', 'intrinsic', 'wind_ref', 'disc', 'warm', 'hot'}, optional
             Specify spectral component to extract. If 'all', then uses total SED. 
             The default is 'all'.
 
@@ -653,19 +649,17 @@ class AGNobject:
         
         
         #Checking if evolve spec has already been run
-        if hasattr(self, 'Ltot_var'):
+        if hasattr(self, 'Lintrinsic_var'):
             pass
         else:
-            if fuvs == None:
-                raise ValueError('NONE type light-curve not permitted!! \n'
-                                 'Either run evolve_spec() FIRST \n'
-                                 'OR pass a light-curve here!')
-            else:    
-                self.evolve_spec(fuvs)
+            raise ValueError('NONE type light-curve not permitted!! \n'
+                             'Either run evolve_spec() FIRST \n'
+                             'OR pass a light-curve here!')
+
         
         
         #MChecking if mean spec exists
-        if hasattr(self, 'Lnu_tot'):
+        if hasattr(self, 'Lnu_intrinsic'):
             if self._reverb == self._SED_rep:
                 pass
             else:
@@ -676,8 +670,17 @@ class AGNobject:
         
         #Extracting desired component
         if component == 'all':
-            Ltot_all = self.Ltot_var
+            if hasattr(self, 'Lref_var'):
+                Ltot_all = self.Lintrinsic_var + self.Lref_var
+                Lmean = self.Lnu_intrinsic + self.make_windSED()
+            else:
+                Ltot_all = self.Lintrinsic_var
+                Lmean = self.Lnu_intrinsic
+        
+        elif component == 'intrinsic':
+            Ltot_all = self.Lintrinsic_var
             Lmean = self.Lnu_intrinsic
+            
         else:
             Ltot_all = self.VARdict[component]
             Lmean = self.SEDdict[component]
@@ -704,6 +707,39 @@ class AGNobject:
         
 
         #Now extracting Lcurve
+        Lc_out = self._extractLC(Ltot_all, Lmean, band, band_width, as_frac)
+        
+        return Lc_out
+    
+    
+    def _extractLC(self, Ltot_all, Lmean, band, band_width, as_frac):
+        """
+        Extracts a light-curve from time-dep SEDs
+        This gets called by get_Lcurve(), which handles units and component
+        choice. So this routine only cares about actually extracting the LC,
+        and assumes all input units are correct!!
+
+        Parameters
+        ----------
+        Ltot_all : 2D-array
+            Time-dep SED for extraction
+        Lmean : 1D-array
+            Mean SED, for normalisation
+        band : float
+            Midtpoint energy to extract
+            Units : same as current object settings
+        band_width : float
+            Width of bandpass
+            Units : same as current object setting
+        as_frac : bool
+            Whether to normalise by the mean
+
+        Returns
+        -------
+        Lc_out : 1D-array
+            Lightcurve
+
+        """
         
         if self.units == 'SI' or self.units == 'cgs':
             idx_mod_up = np.abs(band + band_width/2 - self.nu_obs).argmin()
@@ -741,6 +777,7 @@ class AGNobject:
             Lc_out = Lcurve
         
         return Lc_out
+    
     
     
     def get_timeDepSED(self, component='all', fuv=np.array([1])):
