@@ -951,7 +951,7 @@ class AGNsed_CL_fullVar(AGNobject):
         #Rebinning onto same grid as rest of code
         Lref_int = interp1d(nu_cl, Lref_all, axis=0)
         Lref_bnd = Lref_int(self.nu_grid)
-        print(Lref_bnd)
+
         #Storing as attribute
         setattr(self, f'_ref_emiss_{which}', Lref_bnd)
         
@@ -1191,7 +1191,7 @@ if __name__ == '__main__':
     agn = AGNsed_CL_fullVar()
     
     agn.defineWindGeom()
-    agn.loadCL_run('CL_tstRun', which='mean')
+    agn.loadCL_run('CL_tstRun', which='min')
     
 
 
