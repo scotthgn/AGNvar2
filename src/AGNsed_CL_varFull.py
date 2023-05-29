@@ -32,6 +32,7 @@ power-spectra, time-lags, etc.
 
 import numpy as np
 import os
+import glob
 
 from scipy.interpolate import interp1d
 from multiprocessing import Pool, cpu_count
@@ -827,7 +828,7 @@ class AGNsed_CL_fullVar(AGNobject):
         if flabel == '':
             pass
         else:
-            flabel = '_'+flabel
+            flabel = flabel+'_'
         
         #Checks if wind geometry has been defined
         if hasattr(self, 'rw_mids'):
@@ -926,27 +927,34 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
-        for ridx, dw in enumerate(self.dw_mids):
-            nu_cl, Lrefi, Llinei = np.loadtxt(f'{outdir}/L{which}_run_ridx{ridx}.con',
-                                            usecols=(0, 5, 7), unpack=True)
+        
+        cllst = glob.glob(f'{outdir}/*L{which}_run_ridx*.con')
+        for i, cl in enumerate(cllst):
+            #Finding ridx as not necessarily in order
+            _, ridx = cl.split('ridx')
+            ridx, _ = ridx.split('.')
+            ridx = int(ridx)
+            dw = self.dw_mids[ridx]
+            
+            #Loading data files
+            nu_cl, Lrefi, Llinei = np.loadtxt(cl, usecols=(0, 5, 7), unpack=True)
             Lrefi = Lrefi-Llinei
             
             Acl = 4*np.pi*self.fcov * (dw*self.Rg)**2 #Cloud surface area
-            
             Lrefi /= Acl #Luminsoty per unit area (ergs/s/cm2)
             
-            if ridx == 0:
-                Lref_all = Lrefi/nu_cl
-            else:
-                Lref_all = np.column_stack((Lref_all, Lrefi/nu_cl))
+            if i == 0:
+                Lref_all = np.ndarray((len(nu_cl), len(cllst))) #because initially dont know E grid size
+                
+            Lref_all[:, ridx] = Lrefi/nu_cl
         
         #Rebinning onto same grid as rest of code
         Lref_int = interp1d(nu_cl, Lref_all, axis=0)
         Lref_bnd = Lref_int(self.nu_grid)
-        
+        print(Lref_bnd)
         #Storing as attribute
         setattr(self, f'_ref_emiss_{which}', Lref_bnd)
-    
+        
     
     def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, Ncpu='max-1',
                          outdir=''):
@@ -1179,6 +1187,12 @@ class AGNsed_CL_fullVar(AGNobject):
     
 
 
+if __name__ == '__main__':
+    agn = AGNsed_CL_fullVar()
+    
+    agn.defineWindGeom()
+    agn.loadCL_run('CL_tstRun', which='mean')
+    
 
 
 
