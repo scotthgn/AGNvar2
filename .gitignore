@@ -2,7 +2,8 @@
 tst*.py 
 *.agn
 *TEST*
-*tst* 
+*tst*
+*test* 
 
 #pycache
 __pycache__
