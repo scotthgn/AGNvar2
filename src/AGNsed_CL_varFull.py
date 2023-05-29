@@ -772,7 +772,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='',
-                     Ncpu='max-1'):
+                     Ncpu='max-1', flabel=''):
         """
         Sets up and runs Cloudy
         
@@ -803,6 +803,10 @@ class AGNsed_CL_fullVar(AGNobject):
                     negative number of cores...
             
             The default is 'max-1'
+        flabel : str
+            Additional label string to add as prefix onto output files
+            This exists for the purpose of differntiating files when running
+            batch jobs on, e.g, cosma
             
         
         Returns
@@ -819,6 +823,11 @@ class AGNsed_CL_fullVar(AGNobject):
             outdir += f'_rl{self.r_l}_fcov{self.fcov}'
         else:
             pass
+        
+        if flabel == '':
+            pass
+        else:
+            flabel = '_'+flabel
         
         #Checks if wind geometry has been defined
         if hasattr(self, 'rw_mids'):
@@ -846,7 +855,7 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
-                                  simname='Lmean_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmean_run', Ncpu=Ncpu, outdir=outdir)
             
             self.loadCL_run(outdir, which='mean')
         
@@ -872,12 +881,12 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for Lnu_min')
             self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, 
-                                  simname='Lmin_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmin_run', Ncpu=Ncpu, outdir=outdir)
             print()
             
             print('Running Cloudy for Lnu_max')
             self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, 
-                                  simname='Lmax_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmax_run', Ncpu=Ncpu, outdir=outdir)
             print()
             
             self.loadCL_run(outdir, which='min')
