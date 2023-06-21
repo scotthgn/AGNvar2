@@ -66,7 +66,9 @@ class AGNsed_CL_fullVar(AGNobject):
                  r_warm = 2000,
                  log_rout = -1,
                  hmax = 10,
-                 redshift = 0):
+                 redshift = 0,
+                 N=2**14,
+                 dt=0.1*24*3600):
         
         """
     
@@ -122,7 +124,14 @@ class AGNsed_CL_fullVar(AGNobject):
         redshift : float
             Redshift to source
             Default : 0
-
+        N : int
+            Number of time-steps in series
+            Default 2**14
+        dt : float
+            Time step in time-sereis
+            Units : s
+            Default : 0.1*24*3600 (i.e 0.1 days)
+        
         Returns
         -------
         None.
@@ -180,7 +189,7 @@ class AGNsed_CL_fullVar(AGNobject):
         
         #Initiating SED_calculator, Propfluc calculator, and Cloudy handler
         self.sed = _SpecCalc(self)
-        self.propfluc = _PropFluc(self, N=2**14, dt=0.1*24*3600)
+        self.propfluc = _PropFluc(self, N=N, dt=dt)
         self.cloudy = CLOUDY_object()
 
 
