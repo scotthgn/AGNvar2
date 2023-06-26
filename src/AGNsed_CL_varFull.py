@@ -417,6 +417,7 @@ class AGNsed_CL_fullVar(AGNobject):
         self._reverb = reverberate #flag for use when extracting LCs later!!
         
         self.Ltot_var = self.Lintrinsic_var
+        self.dttot = dttot
         return self.Lintrinsic_var, dttot
     
     
