@@ -27,6 +27,9 @@ import astropy.units as u
 import warnings
 import pickle
 
+from scipy.interpolate import interp1d
+from astropy.io import fits
+
 
 
 
@@ -648,45 +651,8 @@ class AGNobject:
         """
         
         
-        #Checking if evolve spec has already been run
-        if hasattr(self, 'Lintrinsic_var'):
-            pass
-        else:
-            raise ValueError('NONE type light-curve not permitted!! \n'
-                             'Either run evolve_spec() FIRST \n'
-                             'OR pass a light-curve here!')
-
+        Ltot_all, Lmean = self._LC_extractionCHECKS(component)
         
-        
-        #MChecking if mean spec exists
-        if hasattr(self, 'Lnu_intrinsic'):
-            if self._reverb == self._SED_rep:
-                pass
-            else:
-                self.make_intrinsicSED(reprocess=self._reverb)
-        else:
-            self.make_intrinsicSED(reprocess=self._reverb)
-        
-        
-        #Extracting desired component
-        if component == 'all':
-            if hasattr(self, 'Lref_var'):
-                Ltot_all = self.Lintrinsic_var + self.Lref_var
-                Lmean = self.Lnu_intrinsic + self.make_windSED()
-            else:
-                Ltot_all = self.Lintrinsic_var
-                Lmean = self.Lnu_intrinsic
-        
-        elif component == 'intrinsic':
-            Ltot_all = self.Lintrinsic_var
-            Lmean = self.Lnu_intrinsic
-            
-        else:
-            Ltot_all = self.VARdict[component]
-            Lmean = self.SEDdict[component]
-        
-        
-
         #Handling units
         #Explicitly doing band limits as dE doesnt necessarily transform nicely
         bnd_max = band + band_width/2 
@@ -710,6 +676,77 @@ class AGNobject:
         Lc_out = self._extractLC(Ltot_all, Lmean, band, band_width, as_frac)
         
         return Lc_out
+    
+    
+    
+    def get_Lcurve_fromRSP(self, rspfile, as_frac=True, component='all'):
+        """
+        Generates a light-curve, but using a telescope response file rather
+        than assuming a top hat (e.g the swift uvot uvw2 band-pass)
+        
+        Note, this assumes that the response has energy units in keV, and
+        effective area in cm^2.
+        Also, only works on 1D response files (e.g Swift-UVOT or XMM-OM files)
+        Non-diagonal matrices, as commonly used in Xrays, is not currently
+        supported
+
+        Parameters
+        ----------
+        rspfile : str
+            Input response file
+        as_frac : TYPE, optional
+            If True, then output is normalised by the mean SED, so units F/Fmean
+            If False, then output has the currently set units (i.e ergs/s/Hz, etc)
+            The default is True.
+        component : {'all', 'intrinsic', 'wind_ref', 'disc', 'warm', 'hot'}, optional
+            Specify spectral component to extract. If 'all', then uses total SED. 
+            The default is 'all'.
+
+        Returns
+        -------
+        LC_out : array
+            Output light-curve
+
+        """
+        
+        Ltot_all, Lmean = self._LC_extractionCHECKS(component)
+        
+        #converting to photons/cm^2/s/keV
+        Ltot_all = (Ltot_all*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
+                                        equivalencies=u.spectral()).value
+        Lmean = (Lmean*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
+                                        equivalencies=u.spectral()).value
+        
+        Ltot_all /= (4*np.pi*self.d**2 * (1+self.z))
+        Lmean /= (4*np.pi*self.d**2 * (1+self.z))
+        
+        
+        #Importing repsonse matrix
+        with fits.open(rspfile) as rf:
+            rmat = rf[1].data #response matrix
+            rEl = np.array(rmat.field(0)) #left E bin edge
+            rEr = np.array(rmat.field(1)) #right E bin edge
+            rsp = np.array(rmat.field(5)) #Filter response (cm^2)
+        
+        rEm = rEl + 0.5*(rEr - rEl) #midpoint
+        
+        #for each time-step, interpolating SED and then convolving with filter
+        #response
+        LC_out = np.array([])
+        for i in range(len(Ltot_all[0, :])):
+            Lt_interp = interp1d(self.E_obs, Ltot_all[:, i], kind='linear')
+            
+            LC_t = np.trapz(Lt_interp(rEm)*rsp, rEm) #Convolving with response
+            LC_out = np.append(LC_out, LC_t)
+        
+        if as_frac == True:
+            Lm_interp = interp1d(self.E_obs, Lmean, kind='linear')
+            Lm_filt = np.trapz(Lm_interp(rEm)*rsp, rEm)
+            
+            LC_out /= Lm_filt
+        
+        return LC_out
+    
     
     
     def _extractLC(self, Ltot_all, Lmean, band, band_width, as_frac):
@@ -777,6 +814,62 @@ class AGNobject:
             Lc_out = Lcurve
         
         return Lc_out
+    
+    
+    def _LC_extractionCHECKS(self, component):
+        """
+        Checks if all necessary components exist for extracting LCs
+
+        Parameters
+        ----------
+        component : {'all', 'intrinsic', 'wind_ref', 'disc', 'warm', 'hot'}, optional
+            Specify spectral component to extract. If 'all', then uses total SED. 
+            The default is 'all'.
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        #Checking if evolve spec has already been run
+        if hasattr(self, 'Lintrinsic_var'):
+            pass
+        else:
+            raise ValueError('NONE type light-curve not permitted!! \n'
+                             'Either run evolve_spec() FIRST \n'
+                             'OR pass a light-curve here!')
+
+        
+        
+        #MChecking if mean spec exists
+        if hasattr(self, 'Lnu_intrinsic'):
+            if self._reverb == self._SED_rep:
+                pass
+            else:
+                self.make_intrinsicSED(reprocess=self._reverb)
+        else:
+            self.make_intrinsicSED(reprocess=self._reverb)
+        
+        
+        #Extracting desired component
+        if component == 'all':
+            if hasattr(self, 'Lref_var'):
+                Ltot_all = self.Lintrinsic_var + self.Lref_var
+                Lmean = self.Lnu_intrinsic + self.make_windSED()
+            else:
+                Ltot_all = self.Lintrinsic_var
+                Lmean = self.Lnu_intrinsic
+        
+        elif component == 'intrinsic':
+            Ltot_all = self.Lintrinsic_var
+            Lmean = self.Lnu_intrinsic
+            
+        else:
+            Ltot_all = self.VARdict[component]
+            Lmean = self.SEDdict[component]
+        
+        return Ltot_all, Lmean
     
     
     

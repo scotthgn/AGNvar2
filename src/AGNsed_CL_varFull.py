@@ -343,14 +343,14 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     
-    def evolve_intrinsicSED(self, reverberate=True, fpd=1, fpw=10, fph=10):
+    def evolve_intrinsicSED(self, reverberate=True, fpd=None, fpw=None, fph=None):
         """
         Evolves the SED by first generating a realisation of the propagating
         fluctuations, and then calculaing the spectrum
         
         Note, all variability time-scales and such must be set with
         self.propfluc.... (see documentation)
-
+        
         Returns
         -------
         None.
