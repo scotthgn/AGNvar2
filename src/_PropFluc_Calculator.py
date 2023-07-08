@@ -146,7 +146,74 @@ class _PropFluc:
             self.fg_hc = self._fgen(rhm, Bh, mh)
         else:
             self.fg_hc = None
-            
+    
+    
+    
+    def set_propagationVar(self, Bpd=0.5, Bpw=0.01, Bph=200, mpd=0.5, mpw=-3/2, 
+                           mph=1):
+        """
+        Sets the propagation variability within each radial annulus
+        (i.e time for fluctuation to go from r_i to r_i+1)
+        
+        This method allows for disentangeling the propagation frequency from
+        the generative frequency - and as such is optional
+        (If you wish to keep fprop linked to fgen, simply use the fpd, fpw, fph
+         parameters in gene_mdotRealisation)
+
+        Parameters
+        ----------
+        Bpd : float
+            Propagation frequency amplitude in disc region
+            Defualt : 0.5
+        Bpw : float
+            Propagation frequency amplitude in warm region
+            Defualt : 0.01
+        Bph : float
+            Propagation frequency amplitude in hot region
+            Default : 200
+        mpd : float
+            Propagation frequency power-law index in disc region
+            Defualt : 0.5
+        mpw : float
+            Propagation frequency power-law index in warm region
+            Default : -3/2
+        mph : float
+            Propagation frequency power-law in hot region
+            Default : 1
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        #Checking if generative variability has been set yet!
+        if hasattr(self, 'Fvw'):
+            pass
+        else:
+            print('Variability pars have not been set yet!!! Using default '
+                  'values. Set these yourself with .set_generativeVar()')
+            self.set_generativeVar()
+        
+        
+        if len(self._agn.logr_ad_bins) > 1:
+            rdm = 10**(self._agn.logr_ad_bins[:-1] - self._agn.dlogr_ad/2)
+            self.fp_ad = self._fgen(rdm, Bpd, mpd)
+        else:
+            self.fp_ad = None
+        
+        if len(self._agn.logr_wc_bins) > 1:
+            rwm = 10**(self._agn.logr_wc_bins[:-1] - self._agn.dlogr_wc/2)
+            self.fp_wc = self._fgen(rwm, Bpw, mpw)
+        else:
+            self.fp_wc = None
+        
+        if len(self._agn.logr_hc_bins) > 1:
+            rhm = 10**(self._agn.logr_hc_bins[:-1] - self._agn.dlogr_hc/2)
+            self.fp_hc = self._fgen(rhm, Bph, mph)
+        else:
+            self.fp_hc = None
+    
     
     def gene_mdotPspec(self):
         """
@@ -263,7 +330,7 @@ class _PropFluc:
     ###########################################################################
     
     
-    def gene_mdotRealisation(self, fpd, fpw, fph):
+    def gene_mdotRealisation(self, fpd=None, fpw=None, fph=None):
         """
         Generates realisations of the mass-accretion rate fluctuations at
         each annulus
@@ -280,21 +347,25 @@ class _PropFluc:
             Propogation factor for disc (i.e how much faster than the generative
             time-scale do fluctuations propogate downwards)
             This is such that fprop = fpd * fgen
+            Default : None
+                Included for backward compatibility with previous version!
         fpw : int or float
             Propogation factor for warm region
+            Default : None
+                Included for backward compatibility with previous version!
         fph : int or float
             Propogation factor for hot region
+            Default : None
+                Included for backward compatibility with previous version!
 
         Returns
         -------
         None.
 
         """
-        #Uses the model power-spectra to generate realisations
-        if hasattr(self, 'AChot'):
-            pass
-        else:
-            self.gene_mdotPspec()
+        
+        #performing checks
+        self._check_mdotRelisation_inPars(fpd, fpw, fph)
         
         xt_dsc_iann = self._TimmerKoenig(self.pow_dsc_iann)
         xt_wrm_iann = self._TimmerKoenig(self.pow_wrm_iann)
@@ -312,7 +383,7 @@ class _PropFluc:
             xt_dsc_tann = xt_dsc_iann
         else:
             xt_dsc_tann, dti, dttot = self._prop_xt(xt_tot, dti, xt_dsc_iann, 
-                                        fpd*self.fg_ad, self._agn.logr_ad_bins, 
+                                        self.fp_ad, self._agn.logr_ad_bins, 
                                         self._agn.dlogr_ad) 
             xt_tot = xt_dsc_tann[:, -1]
         
@@ -322,7 +393,7 @@ class _PropFluc:
             xt_tot = None
         else:
             xt_wrm_tann, dti, dttot_wc = self._prop_xt(xt_tot, dti, xt_wrm_iann, 
-                                        fpw*self.fg_wc, self._agn.logr_wc_bins, 
+                                        self.fp_wc, self._agn.logr_wc_bins, 
                                         self._agn.dlogr_wc)
             xt_tot = xt_wrm_tann[:, -1]
             dttot += dttot_wc
@@ -338,7 +409,7 @@ class _PropFluc:
                 xt_tot = self._reScale_xtvar(xt_tot, self.hpfrac)
             
             xt_hot_tann, dti, dttot_hc = self._prop_xt(xt_tot, dti, xt_hot_iann, 
-                                    fph*self.fg_hc, self._agn.logr_hc_bins, 
+                                    self.fp_hc, self._agn.logr_hc_bins, 
                                     self._agn.dlogr_hc)
                 
             dttot += dttot_hc
@@ -395,9 +466,7 @@ class _PropFluc:
         None.
 
         """
-        
-        #rmids = 10**(log_rbins[:-1] - dlog_r/2)
-        #drs = 10**(log_rbins[:-1]) - 10**(log_rbins[1:])      
+           
         
         if xt_tot is None:
             xt_interp = interp1d(self.ts, xt_iann[:, 0], kind='linear',
@@ -453,8 +522,61 @@ class _PropFluc:
         return xt_tann, dti, dttot
         
     
+    
+    def _check_mdotRelisation_inPars(self, fpd, fpw, fph):
+        """
+        Checks that all the necessary class atributes needed to run 
+        gene_mdotRealisation exist. If not, then generates them
+
+        Parameters
+        ----------
+        fpd : TYPE
+            DESCRIPTION.
+        fpw : TYPE
+            DESCRIPTION.
+        fph : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        #Uses the model power-spectra to generate realisations
+        if hasattr(self, 'AChot'):
+            pass
+        else:
+            self.gene_mdotPspec()
+            
+            
+        #Checking if fpd, etc, parameters used!
+        #This is for backward compatibility!!!!
+        if fpd is None and fpw is None and fph is None:
+            pass
+        else:
+            if fpd is None:
+                fpd = 10
+            
+            if fpw is None:
+                fpw = 10
+                
+            if fph is None:
+                fph = 10
+            
+            self.fp_ad = fpd*self.fg_ad
+            self.fp_wc = fpw*self.fg_wc
+            self.fp_hc = fph*self.fg_hc
         
         
+        #Checking if propagation time-scales exist (in case when fpd, etc, not used)
+        if hasattr(self, 'fp_wc'):
+            pass
+        else:
+            print('Propagation pars have not been set yet!!! Using default '
+                  'values. Set these yourself with .set_propagationVar()')
+            self.set_propagationVar()
+    
     
     
     ###########################################################################
@@ -646,19 +768,28 @@ class _PropFluc:
             pass
         else:
             ax.loglog(rmd, self.fg_ad, color='red')
+            if hasattr(self, 'fp_ad'):
+                ax.loglog(rmd, self.fp_ad, color='red', ls='dashed')
         
         if self.fg_wc is None:
             pass
         else:
-            ax.loglog(rmw, self.fg_wc, color='green')
+            ax.loglog(rmw, self.fg_wc, color='green', label='f_gen')
+            if hasattr(self, 'fp_wc'):
+                ax.loglog(rmw, self.fp_wc, color='green', ls='dashed', label='f_prop')
         
         if self.fg_hc is None:
             pass
         else:
             ax.loglog(rmh, self.fg_hc, color='blue')
+            if hasattr(self, 'fp_hc'):
+                ax.loglog(rmh, self.fp_hc, color='blue', ls='dashed')
         
         ax.set_xlabel('Radius, r   (Rg)')
-        ax.set_ylabel(r'$f_{gen}$   (Hz)')
+        ax.set_ylabel(r'$f$   (Hz)')
+        
+        if hasattr(self, 'fp_wc'):
+            ax.legend(frameon=False)
         
         plt.show()        
     
