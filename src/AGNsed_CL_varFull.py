@@ -825,8 +825,11 @@ class AGNsed_CL_fullVar(AGNobject):
         None.
 
         """
-        
-        self.cloudy.gene_runfile() #used to execute the cloudy run
+    
+        if 'run' in os.listdir():
+            pass #to avoid file clashes when running multiple models simoultaneously
+        else:
+            self.cloudy.gene_runfile() #used to execute the cloudy run
         
         #output directory
         if outdir == '':
