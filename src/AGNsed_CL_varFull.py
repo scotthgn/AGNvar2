@@ -343,13 +343,29 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     
-    def evolve_intrinsicSED(self, reverberate=True, fpd=None, fpw=None, fph=None):
+    def evolve_intrinsicSED(self, reverberate=True, reverb_only=False,
+                            fpd=None, fpw=None, fph=None):
         """
         Evolves the SED by first generating a realisation of the propagating
         fluctuations, and then calculaing the spectrum
         
         Note, all variability time-scales and such must be set with
         self.propfluc.... (see documentation)
+        
+        Parameters
+        ----------
+        reverberate : bool
+            Switches disc reverberation on/off (true/false)
+            The default is True (on)
+        reverb_only : bool
+            Switch to only include disc reverberation in output variability
+            i.e if True, then propagating fluctuations will only be used to 
+            generetate mdot time series in disc and corona - however in the
+            output SED the disc mdot(t) will be set to 1 (so intrinsically
+            static)
+            To be used if you want a pure reverberation model
+            The defualt is False (off)
+        
         
         Returns
         -------
@@ -358,7 +374,6 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         #Generating mdot realisations
-        self.verboseprint('Generating time-series')
         xt_dsc, xt_wrm, xt_hot, dttot = self.propfluc.gene_mdotRealisation(fpd, fpw, fph)
         fm_seed = self._gene_LseedFM(xt_dsc, xt_wrm, self.propfluc.ts)
         
@@ -367,7 +382,6 @@ class AGNsed_CL_fullVar(AGNobject):
         
         
         #Calculating spectral parameters
-        self.verboseprint('Calculating spectral parameters')
         Lseed = self.sed.calc_Lseed(fm_seed)
         Ldiss = self.sed.calc_Ldiss(xt_hot)
         gamma_hs = self.sed.calc_gammah(Ldiss, Lseed)
@@ -383,20 +397,36 @@ class AGNsed_CL_fullVar(AGNobject):
         Lx_wrmarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_wc_bins, 
                                                self.dlogr_wc)
         
-        self.verboseprint('Calculating SEDs')
+        #if reverb only turning off disc variability
+        if reverb_only:
+            xt_dsc = np.ones(np.shape(xt_dsc))
+            xt_wrm = np.ones(np.shape(xt_wrm))
+        else:
+            pass
+        
+        
         #Now calculating variable spectral components
+        #disc
         if len(self.logr_ad_bins) > 1:
-            self.verboseprint('Disc component...')
             Ldisc_var = self.sed.disc_spec(xt_dsc, reprocess=reverberate, Lx=Lx_dscarr)
         else:
             Ldisc_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        self.verboseprint('Warm Compton component')
-        Lwarm_var = self.sed.warm_spec(xt_wrm, reprocess=reverberate, Lx=Lx_wrmarr)
-        self.verboseprint('Hot Compton component')
-        Lhot_var = self.sed.hot_spec(xt_hot, gamma=gamma_hs, kte=kths,
-                                     kts=ktseeds, Lseed=Lseed)
+        
+        #warm compton
+        if len(self.logr_wc_bins) > 1:
+            Lwarm_var = self.sed.warm_spec(xt_wrm, reprocess=reverberate, Lx=Lx_wrmarr)
+        else:
+            Lwarm_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
+        
+        #hot compton
+        if len(self.logr_hc_bins) > 1:
+            Lhot_var = self.sed.hot_spec(xt_hot, gamma=gamma_hs, kte=kths,
+                                         kts=ktseeds, Lseed=Lseed)
+        else:
+            Lhot_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
         
         self.Lintrinsic_var = Ldisc_var + Lwarm_var + Lhot_var
+        
         
         #For Cloudy purposes later!!
         self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
