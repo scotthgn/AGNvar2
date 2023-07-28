@@ -313,7 +313,7 @@ class _PropFluc:
                 AC = Anew
             elif i == 0 and AC is not None:
                 XJ = fftconvolve(Anew, AC, mode='same')
-                AC = np.sqrt(pfrac) * XJ - np.sqrt(pfrac) * Anew + Anew
+                AC = pfrac * XJ - pfrac * Anew + Anew
             else:
                 AC = fftconvolve(Anew, AC, mode='same')
             
