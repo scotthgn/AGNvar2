@@ -147,6 +147,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
         self.gamma_h = gamma_hot
         self.gamma_w = gamma_warm
         
+        
         #Checking switching parameters
         if log_rout < 0:
             self.rout = self.r_sg
@@ -190,7 +191,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
         
         #Initiating SED_calculator, Propfluc calculator, and Cloudy handler
         self.sed = _SpecCalc(self)
-        self.propfluc = _PropFluc(self, N=N, dt=dt)
+        self.propfluc = _PropFluc(self, N=int(N), dt=dt)
         self.cloudy = CLOUDY_object()
 
 
@@ -199,7 +200,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
     #---- Intrinsic SED and variability
     ###########################################################################
     
-    def make_intrinsicSED(self, reprocess=True):
+    def make_intrinsicSED(self, reprocess=True, kts_fact=1):
         """
         Calculates the intrinsic SED of the system (i.e disc+warm Compton+hot Compton).
         i.e no variability, re-processing, or wind contributions
@@ -210,6 +211,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
 
         """
         self.Lx = self.sed.calc_Ldiss() + self.sed.calc_Lseed()
+        kths = kts_fact * self.sed.calc_kTseed()
         
         if hasattr(self, 'Lnu_disc'):
             pass
@@ -224,7 +226,8 @@ class AGNsed_CL_gammaStatic(AGNobject):
         if hasattr(self, 'Lnu_hot'):
             pass
         else:
-            self.Lnu_hot = self.sed.hot_spec(gamma=self.gamma_h, kte=self.kTh)[:, 0]
+            self.Lnu_hot = self.sed.hot_spec(gamma=self.gamma_h, kte=self.kTh,
+                                             kts=kths)[:, 0]
         
         self._add_SEDcomponent(self.Lnu_disc, 'disc')
         self._add_SEDcomponent(self.Lnu_warm, 'warm')
@@ -345,7 +348,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
     
     
     def evolve_intrinsicSED(self, reverberate=True, reverb_only=False,
-                            fpd=None, fpw=None, fph=None):
+                            fpd=None, fpw=None, fph=None, kts_fact=1):
         """
         Evolves the SED by first generating a realisation of the propagating
         fluctuations, and then calculaing the spectrum
@@ -385,7 +388,7 @@ class AGNsed_CL_gammaStatic(AGNobject):
         #Calculating spectral parameters
         Lseed = self.sed.calc_Lseed(fm_seed)
         Ldiss = self.sed.calc_Ldiss(xt_hot)
-        ktseeds = self.sed.calc_kTseed(fm_seed[:, -1])
+        ktseeds = kts_fact*self.sed.calc_kTseed(fm_seed[:, -1])
         
         #Getting reverberation time-scales
         Lxs = Ldiss + Lseed #Total x-ray lum
@@ -1166,8 +1169,9 @@ class AGNsed_CL_gammaStatic(AGNobject):
         
         self.dr_dex = Ndex
         self.__init__(self.M, self.D, np.log10(self.mdot), self.a,
-                      self.cos_inc, self.tau_t, self.kTw, self.gamma_w, 
-                      self.rh, self.rw, np.log10(self.rout), self.hmax, self.z)
+                      self.cos_inc, self.kTh, self.kTw, self.gamma_h, self.gamma_w, 
+                      self.rh, self.rw, np.log10(self.rout), self.hmax, self.z,
+                      self.propfluc.N, self.propfluc.dt)
         
         
     

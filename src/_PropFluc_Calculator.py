@@ -689,7 +689,7 @@ class _PropFluc:
 
 
         """
-        
+    
         #initiating fourier transfomr array - only using +ve frequencies
         FT = np.zeros(np.shape(PS[self.fs>0, :]), dtype=complex)
         
