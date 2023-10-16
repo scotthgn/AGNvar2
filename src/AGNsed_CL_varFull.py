@@ -344,7 +344,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     def evolve_intrinsicSED(self, reverberate=True, reverb_only=False,
-                            fpd=None, fpw=None, fph=None):
+                            reprocess=True, fpd=None, fpw=None, fph=None):
         """
         Evolves the SED by first generating a realisation of the propagating
         fluctuations, and then calculaing the spectrum
@@ -365,6 +365,11 @@ class AGNsed_CL_fullVar(AGNobject):
             static)
             To be used if you want a pure reverberation model
             The defualt is False (off)
+        reprocess : bool
+            Turns on/off (true/false) disc re-processing. Only matters when
+            reverberate is set to false, as this allows for a non-time varying
+            reprocessed component in the SED (for intrinsic only runs)
+            If reverberate = True, then reprocess will always be True!!
         
         
         Returns
@@ -390,12 +395,21 @@ class AGNsed_CL_fullVar(AGNobject):
         
         #Getting reverberation time-scales
         Lxs = Ldiss + Lseed #Total x-ray lum
-        Lxs_interp = interp1d(self.propfluc.ts, Lxs, kind='linear',
-                              bounds_error=False, fill_value=np.mean(Lxs))
-        Lx_dscarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_ad_bins,
-                                               self.dlogr_ad)
-        Lx_wrmarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_wc_bins, 
-                                               self.dlogr_wc)
+        if reverberate:
+            Lxs_interp = interp1d(self.propfluc.ts, Lxs, kind='linear',
+                                  bounds_error=False, fill_value=np.mean(Lxs))
+            Lx_dscarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_ad_bins,
+                                                   self.dlogr_ad)
+            Lx_wrmarr = self._gene_discReverbLXarr(Lxs_interp, self.logr_wc_bins, 
+                                                   self.dlogr_wc)
+            reprocess = True #reprocess always on if reverberating!
+        else:
+            Lx_dscarr = None #setting None allows for non varying re-processed component in SEDs
+            Lx_wrmarr = None
+            if hasattr(self, 'Lx'): #needs to exist for non-varying component
+                pass
+            else:
+                self.Lx = self.sed.calc_Lseed() + self.sed.calc_Ldiss()
         
         #if reverb only turning off disc variability
         if reverb_only:
@@ -408,13 +422,13 @@ class AGNsed_CL_fullVar(AGNobject):
         #Now calculating variable spectral components
         #disc
         if len(self.logr_ad_bins) > 1:
-            Ldisc_var = self.sed.disc_spec(xt_dsc, reprocess=reverberate, Lx=Lx_dscarr)
+            Ldisc_var = self.sed.disc_spec(xt_dsc, reprocess=reprocess, Lx=Lx_dscarr)
         else:
             Ldisc_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
         
         #warm compton
         if len(self.logr_wc_bins) > 1:
-            Lwarm_var = self.sed.warm_spec(xt_wrm, reprocess=reverberate, Lx=Lx_wrmarr)
+            Lwarm_var = self.sed.warm_spec(xt_wrm, reprocess=reprocess, Lx=Lx_wrmarr)
         else:
             Lwarm_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
         
@@ -1170,7 +1184,8 @@ class AGNsed_CL_fullVar(AGNobject):
         self.dr_dex = Ndex
         self.__init__(self.M, self.D, np.log10(self.mdot), self.a,
                       self.cos_inc, self.tau_t, self.kTw, self.gamma_w, 
-                      self.rh, self.rw, np.log10(self.rout), self.hmax, self.z)
+                      self.rh, self.rw, np.log10(self.rout), self.hmax, self.z,
+                      self.propfluc.N, self.propfluc.dt)
         
         
     

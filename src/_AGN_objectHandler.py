@@ -711,15 +711,19 @@ class AGNobject:
         
         Ltot_all, Lmean = self._LC_extractionCHECKS(component)
         
-        #converting to photons/cm^2/s/keV
+        #converting to kev (photons/s/keV)
         Ltot_all = (Ltot_all*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
                                         equivalencies=u.spectral()).value
         Lmean = (Lmean*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
                                         equivalencies=u.spectral()).value
         
+        #now kev (photon/cm^2/keV)
         Ltot_all /= (4*np.pi*self.d**2 * (1+self.z))
         Lmean /= (4*np.pi*self.d**2 * (1+self.z))
         
+        #now photons/cm^2/keV
+        Ltot_all /= self.Egrid[:, np.newaxis]
+        Lmean /= self.Egrid
         
         #Importing repsonse matrix
         with fits.open(rspfile) as rf:
