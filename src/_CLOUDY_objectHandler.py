@@ -91,7 +91,7 @@ class CLOUDY_object:
             pass
         
         if fname is None:
-            fname = f'CL_run_{sedname}.in'
+            fname = f'CL_run_{sedname}'
         else:
             if fname.__contains__('.'):
                 fname, _ = fname.split('.')
