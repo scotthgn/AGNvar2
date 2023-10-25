@@ -473,39 +473,6 @@ class AGNsed_CL_fullVar(AGNobject):
     #     (see next section) and the output loaded
     ###########################################################################
     
-    def _windSED_fromEmiss(self, ref_emiss):
-        """
-        Takes the wind emissivity calculated by cloudy, and applies wind
-        geometry in order to calculate observed SED
-
-        Parameters
-        ----------
-        ref_emiss : 2D array
-            Wind emissivity for each calculated cloudy grid
-
-        Returns
-        -------
-        Lref_tot : 1D-array
-            Reflected wind SED component, as seen by an observer
-
-        """
-        
-        phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
-        cos_bet = self._windVisibility(phi_w_mids)
-        
-        for i, dw in enumerate(self.dw_mids):
-            dA = self.dcos_thw * self.dphi_w * (dw*self.Rg)**2 #grid surface area
-            
-            Lr = ref_emiss[:, i] * dA * (cos_bet[:, np.newaxis]/0.5)
-            Lr = np.sum(Lr, axis=0)
-            
-            if i == 0:
-                Lref_tot = Lr
-            else:
-                Lref_tot = Lref_tot + Lr
-        
-        return Lref_tot
-    
     
     def make_windSED(self):
         """
@@ -529,7 +496,8 @@ class AGNsed_CL_fullVar(AGNobject):
             
             exit()
         
-        Lref_tot = self._windSED_fromEmiss(self._ref_emiss_mean)
+        #multiply by half total solid angle, as only see wind launched from side of disc facing obs
+        Lref_tot = self._ref_emiss_mean * 2*np.pi*self.fcov
         self._add_SEDcomponent(Lref_tot, 'wind_ref')
         return Lref_tot
     
@@ -598,7 +566,7 @@ class AGNsed_CL_fullVar(AGNobject):
         print('Evolving wind...')
         #Setting up pool object
         Ncpu = self._getNcpu(Ncpu)
-        pool = Pool(Ncpu)
+        pool = Pool(Ncpu, maxtasksperchild=1)
         Lref_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
         for lann in pool.imap_unordered(self._calc_windLum_ann, didxs):
             Lref_var += lann
@@ -626,19 +594,17 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
-        cos_bet = self._windVisibility(phi_w_mids)
-        dA = self.dcos_thw * self.dphi_w * (self.dw_mids[didx]*self.Rg)**2
+        dOmega = self.dcos_thw * self.dphi_w
         
         Lr_ann = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        for j, phi in tqdm(enumerate(phi_w_mids), total=len(phi_w_mids), desc=f'Calculting for didx {didx}'):
+        for j, phi in tqdm(enumerate(phi_w_mids), total=len(phi_w_mids), 
+                           desc=f'Calculting for didx {didx}'):
             ref_grd = self._get_emiss_t_grd(didx, phi)
-            lr = ref_grd * dA * (cos_bet[j]/0.5)
+            lr = ref_grd * dOmega
             Lr_ann += lr
         
         return Lr_ann
         
-    
-    
         
     def _get_emiss_t_grd(self, didx, phi):
         """
@@ -693,48 +659,13 @@ class AGNsed_CL_fullVar(AGNobject):
         Sfac /= (self.Lintrinsic_min[:, np.newaxis] - self.Lintrinsic_max[:, np.newaxis])
         Sfac = np.ma.masked_invalid(Sfac) #Masking Nan values (usually at edge where we have divide by 0!)
         
-        ref_emiss = Sfac * self._ref_emiss_min[:, didx, np.newaxis]
-        ref_emiss += (1-Sfac)*self._ref_emiss_max[:, didx, np.newaxis]
+        ref_emiss = Sfac * self._ref_emiss_min[:, np.newaxis]
+        ref_emiss += (1-Sfac)*self._ref_emiss_max[:, np.newaxis]
         
         return ref_emiss
     
     
-    def _windVisibility(self, phi_w_mids):
-        """
-        Calculates the wind visibility for each azimuth as seen by the observer
 
-        Parameters
-        ----------
-        phi_w_mids : array or float
-            The azimuths
-
-        Returns
-        -------
-        cos_bet : array or float
-            The wind visibility
-
-        """
-        
-        if self.alpha_l < 90:
-            cos_bet = -np.cos(phi_w_mids)*np.tan(np.deg2rad(self.alpha_l))*np.sin(self.inc)
-            cos_bet += self.cos_inc
-            cos_bet /= ((np.tan(np.deg2rad(self.alpha_l)))**2 + 1)
-        
-        else:
-            #if alpha_l=90 => cylindrical geometry!!
-            cos_bet = -np.cos(phi_w_mids)*np.sin(self.inc)
-        
-        if isinstance(cos_bet, np.ndarray):
-            cos_bet[cos_bet <= 0] = 0 #setting 0 visibility if looking through point
-        else:
-            if cos_bet <= 0:
-                cos_bet = 0
-            else:
-                pass
-        
-        return cos_bet
-    
-    
     def _tau_wnd(self, didx, phi_w):
         """
         Calculates the time-delay to a wind grid point as seen by the observer
@@ -756,8 +687,6 @@ class AGNsed_CL_fullVar(AGNobject):
         rw = self.rw_mids[didx]
         hw = self.hw_mids[didx]
 
-        #tau_wnd = np.sqrt(rw**2 + (hw - self.hmax)**2)
-        #tau_wnd += (self.hmax - hw)*self.cos_inc
         
         tau_wnd = np.sqrt(rw**2 + (hw)**2)
         tau_wnd += (-hw)*self.cos_inc
@@ -824,10 +753,14 @@ class AGNsed_CL_fullVar(AGNobject):
         
         self.hw_mids = self.rw_mids * np.tan((np.pi/2) - th_mid)
         self.dw_mids = np.sqrt(self.rw_mids**2 + self.hw_mids**2)
+        
+        #Getting the disatnce used in Cloudy calculation
+        #For now setting as middle distance
+        self.DW_calc = min(self.dw_mids) + 0.5*(max(self.dw_mids)-min(self.dw_mids))
+        self.DW_calc *= self.Rg
     
     
-    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='',
-                     Ncpu='max-1', flabel=''):
+    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='', flabel=''):
         """
         Sets up and runs Cloudy
         
@@ -913,7 +846,7 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
-                                  simname=f'{flabel}Lmean_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmean_run', outdir=outdir)
             
             self.loadCL_run(outdir, which='mean')
         
@@ -939,12 +872,12 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for Lnu_min')
             self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, 
-                                  simname=f'{flabel}Lmin_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmin_run', outdir=outdir)
             print()
             
             print('Running Cloudy for Lnu_max')
             self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, 
-                                  simname=f'{flabel}Lmax_run', Ncpu=Ncpu, outdir=outdir)
+                                  simname=f'{flabel}Lmax_run', outdir=outdir)
             print()
             
             self.loadCL_run(outdir, which='min')
@@ -956,8 +889,8 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         Loads and rebins the Cloudy simulation output
         Also subtracts out line emission, and sets the emission to 
-        Luminsoity per unit surface area
-            (i.e ergs/cm2/s)
+        Luminsoity per steradian (ie divide by solid angle)
+            (i.e ergs/str/s/Hz)
         
         Stores as class attribute. No need for user to use this method, as
         called automatically upon executing runCLOUDYmod. However, in case
@@ -985,36 +918,26 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         
-        cllst = glob.glob(f'{outdir}/*L{which}_run_ridx*.con')
-        for i, cl in enumerate(cllst):
-            #Finding ridx as not necessarily in order
-            _, ridx = cl.split('ridx')
-            ridx, _ = ridx.split('.')
-            ridx = int(ridx)
-            dw = self.dw_mids[ridx]
+        cl = glob.glob(f'{outdir}/*L{which}_run.con')
             
-            #Loading data files
-            nu_cl, Lrefi, Llinei = np.loadtxt(cl, usecols=(0, 5, 7), unpack=True)
-            Lrefi = Lrefi-Llinei
-            
-            Acl = 4*np.pi*self.fcov * (dw*self.Rg)**2 #Cloud surface area
-            Lrefi /= Acl #Luminsoty per unit area (ergs/s/cm2)
-            
-            if i == 0:
-                Lref_all = np.ndarray((len(nu_cl), len(cllst))) #because initially dont know E grid size
-                
-            Lref_all[:, ridx] = Lrefi/nu_cl
+        #Loading data files
+        nu_cl, Lref, Lline = np.loadtxt(cl[0], usecols=(0, 5, 7), unpack=True)
+        Lref = Lref-Lline
         
+        Omega = 4*np.pi*self.fcov #solid angle
+        Lref /= Omega #Luminsoty per unit steradian (ergs/s/str)
+        Lref /= nu_cl #ergs/s/str/Hz
+
+    
         #Rebinning onto same grid as rest of code
-        Lref_int = interp1d(nu_cl, Lref_all, axis=0)
+        Lref_int = interp1d(nu_cl, Lref)
         Lref_bnd = Lref_int(self.nu_grid)
 
         #Storing as attribute
         setattr(self, f'_ref_emiss_{which}', Lref_bnd)
         
     
-    def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, Ncpu='max-1',
-                         outdir=''):
+    def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, outdir=''):
         """
         For each theta grid in the wind, runs a Cloudy simulation
 
@@ -1034,20 +957,6 @@ class AGNsed_CL_fullVar(AGNobject):
             format
                 output files: <simname>_ridx<r_idx>.out (or .con, .ovr, etc)
                 in SED : <simname>.sed
-        Ncpu : str or int
-            Number of cpu cores to use
-            If int : treated as explicit number of CPU cores
-                    Note, if more than max available cores, then will reduce
-                    to maximum available on system
-            
-            If 'max' : Will use system max 
-            
-            If 'max-<int>' : Will use system max - int (e.g 1 or 2 etc)
-                    Note, if int >= max, will default to 1 core as cannot use
-                    negative number of cores...
-            
-            The default is 'max-1'
-        
         outdir : str
             Output directory
             If '' will simply default to 'CL_run_loghden{log_hden}_logNh{logNh}'
@@ -1059,18 +968,15 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
-        Ncpu = self._getNcpu(Ncpu)
         self.cloudy.geneCL_SEDfile(self.nu_grid, Lnu, sedname=simname)
         Ltot = np.trapz(Lnu, self.nu_grid)
         
-        pool = Pool(Ncpu)
-        pfunc = partial(self._exeCL_run, log_hden=log_hden, log_Nh=log_Nh,
-                        Ltot=Ltot, sedname=simname, fprefix=simname)
+        self.cloudy.geneCL_infile(log_hden, log_Nh, self.fcov, np.log10(self.DW_calc),
+                                  Ltot, sedname=simname, fname=simname)
+
+        os.system(f'./run {simname}')
         
-        ridxs = np.arange(0, len(self.rw_mids), 1) #iterable
-        for _ in tqdm(pool.imap_unordered(pfunc, ridxs), total=len(ridxs)):
-            pass
-        
+    
         #if outdir does not exist need to make it!
         if outdir in os.listdir():
             pass
@@ -1080,45 +986,6 @@ class AGNsed_CL_fullVar(AGNobject):
         os.system(f'mv {simname}* {outdir}')
     
     
-    def _exeCL_run(self, r_idx, log_hden, log_Nh, Ltot, sedname,
-                   fprefix):
-        """
-        Generates CL input file and executes (as seperate routine to make
-        multiprocessing easier)
-
-        Parameters
-        ----------
-        r_idx : int
-            Index in rw_mids
-        log_hden : float or int
-            log Hydrogen number density
-            Units : cm^-3
-        log_Nh : float or int
-            log Hydrogen column density
-            Units : cm^-2
-        Ltot : float
-            Integrates SED luminsity
-            Units : ergs/s
-        sedname : str
-            Name of cloudy .sed file to use
-        fprefix : str
-            Prefix for output file names
-            i.e output files will have following format:
-                {fprefix}_ridx{r_idx}.in or .con, etc
-
-        Returns
-        -------
-        None.
-
-        """
-        
-        dw = self.dw_mids[r_idx]
-        log_Dw = np.log10(dw * self.Rg) #cm
-        self.cloudy.geneCL_infile(log_hden, log_Nh, self.fcov, log_Dw, Ltot, 
-                                  sedname, fname=f'{fprefix}_ridx{r_idx}')
-        
-        os.system(f'./run {fprefix}_ridx{r_idx}')
-        
     
         
         
