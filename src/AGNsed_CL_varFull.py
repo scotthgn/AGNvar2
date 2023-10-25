@@ -689,13 +689,12 @@ class AGNsed_CL_fullVar(AGNobject):
         
         
         #Calculating emissivity at grid at time t using log-linear interpolation
-        Sfac = (np.log10(Lw_in) - np.log10(self.Lintrinsic_max[:, np.newaxis]))
-        Sfac /= (np.log10(self.Lintrinsic_min[:, np.newaxis]) - np.log10(self.Lintrinsic_max[:, np.newaxis]))
+        Sfac = (Lw_in - self.Lintrinsic_max[:, np.newaxis])
+        Sfac /= (self.Lintrinsic_min[:, np.newaxis] - self.Lintrinsic_max[:, np.newaxis])
         Sfac = np.ma.masked_invalid(Sfac) #Masking Nan values (usually at edge where we have divide by 0!)
         
-        log_ref_emiss = Sfac * np.log10(self._ref_emiss_min[:, didx, np.newaxis])
-        log_ref_emiss += (1-Sfac)*np.log10(self._ref_emiss_max[:, didx, np.newaxis])
-        ref_emiss = 10**log_ref_emiss
+        ref_emiss = Sfac * self._ref_emiss_min[:, didx, np.newaxis]
+        ref_emiss += (1-Sfac)*self._ref_emiss_max[:, didx, np.newaxis]
         
         return ref_emiss
     
