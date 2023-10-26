@@ -568,7 +568,8 @@ class AGNsed_CL_fullVar(AGNobject):
         Ncpu = self._getNcpu(Ncpu)
         pool = Pool(Ncpu, maxtasksperchild=1)
         Lref_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        for lann in pool.imap_unordered(self._calc_windLum_ann, didxs):
+        for lann in tqdm(pool.imap_unordered(self._calc_windLum_ann, didxs),
+                         total=len(didxs)):
             Lref_var += lann
         
         
@@ -597,8 +598,7 @@ class AGNsed_CL_fullVar(AGNobject):
         dOmega = self.dcos_thw * self.dphi_w
         
         Lr_ann = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        for j, phi in tqdm(enumerate(phi_w_mids), total=len(phi_w_mids), 
-                           desc=f'Calculting for didx {didx}'):
+        for j, phi in enumerate(phi_w_mids):
             ref_grd = self._get_emiss_t_grd(didx, phi)
             lr = ref_grd * dOmega
             Lr_ann += lr
