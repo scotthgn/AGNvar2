@@ -971,12 +971,6 @@ class AGNobject:
 
         """
         
-        if fname.__contains__('.'):
-            sidx = fname.rindex('.')
-            fname = fname[:sidx]
-        else:
-            pass
-        
         agn_file = open(f'{fname}.agn', 'wb')
         pickle.dump(self, agn_file)
         agn_file.close()
