@@ -5,5 +5,8 @@ tst*.py
 *tst*
 *test* 
 
+#old files from development
+*old
+
 #pycache
 __pycache__
