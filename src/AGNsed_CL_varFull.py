@@ -760,7 +760,8 @@ class AGNsed_CL_fullVar(AGNobject):
         self.DW_calc *= self.Rg
     
     
-    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='', flabel=''):
+    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='', flabel='',
+                     iterate=False, component='continuum'):
         """
         Sets up and runs Cloudy
         
@@ -795,6 +796,21 @@ class AGNsed_CL_fullVar(AGNobject):
             Additional label string to add as prefix onto output files
             This exists for the purpose of differntiating files when running
             batch jobs on, e.g, cosma
+        iterate : int or bool
+            Determines whether to iterate the cloudy run - note this can 
+            significantly increase run time, and is only really necessary when
+            including line emission
+            Options:
+                True : iterates to convergence
+                False : does not iterate
+                int : iterates <n> times where <n> is in
+            The defauls is False
+        component : {'both', 'continuum', 'line'}
+            Which component to load after calculation finished
+            'both' : continuum and line
+            'continuum' : Line subtracted continuum
+            'line' : continuum free line emission
+            The default is 'continuum'
             
         
         Returns
@@ -846,9 +862,10 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
-                                  simname=f'{flabel}Lmean_run', outdir=outdir)
+                                  simname=f'{flabel}Lmean_run', outdir=outdir,
+                                  iterate=iterate)
             
-            self.loadCL_run(outdir, which='mean')
+            self.loadCL_run(outdir, which='mean', component=component)
         
         elif mode == 'var':
             if hasattr(self, 'Lintrinsic_var'):
@@ -871,21 +888,21 @@ class AGNsed_CL_fullVar(AGNobject):
             Lnu_max = self.Lintrinsic_max
             
             print('Running Cloudy for Lnu_min')
-            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, 
-                                  simname=f'{flabel}Lmin_run', outdir=outdir)
+            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, simname=f'{flabel}Lmin_run', 
+                                  outdir=outdir, iterate=iterate)
             print()
             
             print('Running Cloudy for Lnu_max')
-            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, 
-                                  simname=f'{flabel}Lmax_run', outdir=outdir)
+            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, simname=f'{flabel}Lmax_run',
+                                  outdir=outdir, iterate=iterate)
             print()
             
-            self.loadCL_run(outdir, which='min')
-            self.loadCL_run(outdir, which='max')
+            self.loadCL_run(outdir, which='min', component=component)
+            self.loadCL_run(outdir, which='max', component=component)
     
     
     
-    def loadCL_run(self, outdir, which='mean'):
+    def loadCL_run(self, outdir, which='mean', component='continuum'):
         """
         Loads and rebins the Cloudy simulation output
         Also subtracts out line emission, and sets the emission to 
@@ -910,6 +927,13 @@ class AGNsed_CL_fullVar(AGNobject):
             mode='mean', while 'min' and 'max' will only exist if run with
             mode='var'
             The default is 'mean'.
+        component : {'both', 'continuum', 'line'}
+            Which component to load
+            'both' : continuum and line
+            'continuum' : Line subtracted continuum
+            'line' : continuum free line emission
+            The default is 'continuum'
+        
 
         Returns
         -------
@@ -927,17 +951,33 @@ class AGNsed_CL_fullVar(AGNobject):
         Omega = 4*np.pi*self.fcov #solid angle
         Lref /= Omega #Luminsoty per unit steradian (ergs/s/str)
         Lref /= nu_cl #ergs/s/str/Hz
+        
+        Lline /= Omega #Line luminsity per unit steradian (ergs/s/st)
+        Lline /= nu_cl #ergs/s/st/Hz
 
     
         #Rebinning onto same grid as rest of code
         Lref_int = interp1d(nu_cl, Lref)
         Lref_bnd = Lref_int(self.nu_grid)
+        
+        Lline_int = interp1d(nu_cl, Lline)
+        Lline_bnd = Lline_int(self.nu_grd)
 
         #Storing as attribute
-        setattr(self, f'_ref_emiss_{which}', Lref_bnd)
+        if component == 'continuum' or component == 'both':
+            setattr(self, f'_ref_emiss_{which}', Lref_bnd)
+        else:
+            pass
+        
+        if component == 'line' or component == 'both':
+            setattr(self, f'_line_emiss_{which}', Lline_bnd)
+        else:
+            pass
+        
         
     
-    def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, outdir=''):
+    def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, outdir='',
+                         iterate=False):
         """
         For each theta grid in the wind, runs a Cloudy simulation
 
@@ -961,6 +1001,15 @@ class AGNsed_CL_fullVar(AGNobject):
             Output directory
             If '' will simply default to 'CL_run_loghden{log_hden}_logNh{logNh}'
             The default is ''
+        iterate : int or bool
+            Determines whether to iterate the cloudy run - note this can 
+            significantly increase run time, and is only really necessary when
+            including line emission
+            Options:
+                True : iterates to convergence
+                False : does not iterate
+                int : iterates <n> times where <n> is in
+            The defauls is False
 
         Returns
         -------
@@ -972,7 +1021,7 @@ class AGNsed_CL_fullVar(AGNobject):
         Ltot = np.trapz(Lnu, self.nu_grid)
         
         self.cloudy.geneCL_infile(log_hden, log_Nh, self.fcov, np.log10(self.DW_calc),
-                                  Ltot, sedname=simname, fname=simname)
+                                  Ltot, sedname=simname, fname=simname, iterate=iterate)
 
         os.system(f'./run {simname}')
         
