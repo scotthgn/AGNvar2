@@ -961,7 +961,7 @@ class AGNsed_CL_fullVar(AGNobject):
         Lref_bnd = Lref_int(self.nu_grid)
         
         Lline_int = interp1d(nu_cl, Lline)
-        Lline_bnd = Lline_int(self.nu_grd)
+        Lline_bnd = Lline_int(self.nu_grid)
 
         #Storing as attribute
         if component == 'continuum' or component == 'both':
