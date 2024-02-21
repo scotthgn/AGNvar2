@@ -33,6 +33,7 @@ power-spectra, time-lags, etc.
 import numpy as np
 import os
 import glob
+import astropy.units as u
 
 from scipy.interpolate import interp1d
 from multiprocessing import Pool, cpu_count
@@ -468,7 +469,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     ###########################################################################
-    #---- Wind/Cloudy - Methods for calculating the observerd emission
+    #---- Wind - Methods for calculating the observerd free-bound emission
     #     Note, these work on the basis that Cloudy has already been run
     #     (see next section) and the output loaded
     ###########################################################################
@@ -696,10 +697,6 @@ class AGNsed_CL_fullVar(AGNobject):
         return tau_wnd
     
     
-    ###########################################################################
-    #---- Wind/Cloudy - Methods for running and handling Cloudy stuff
-    ###########################################################################
-    
     def defineWindGeom(self, r_l=300, alpha_l=70, fcov=0.8):
         """
         Defines the wind geometry used when calculating the Cloudy SEDs and
@@ -759,9 +756,106 @@ class AGNsed_CL_fullVar(AGNobject):
         self.DW_calc = min(self.dw_mids) + 0.5*(max(self.dw_mids)-min(self.dw_mids))
         self.DW_calc *= self.Rg
     
+    ###########################################################################
+    #---- BLR - Methods for calculating line emission from a BLR
+    ###########################################################################
     
-    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', outdir='', flabel='',
-                     iterate=False, component='continuum'):
+    def make_lineSED(self):
+        """
+        Takes the Cloudy line output (if run) and calculates the line 
+        contribution to the SED
+
+        Returns
+        -------
+        None.
+
+        """
+    
+        if hasattr(self, '_line_emiss_mean'):
+            pass
+        else:
+            print('Error! No mean Cloudy line emission loaded!'
+                  ' Either load Cloudy output using .loadCL_run (make sure'
+                  ' you do this for the output corresponding to the currently'
+                  ' set wind parameters) or generate new Cloudy output using'
+                  ' .runCLOUDYmod')
+            exit()
+            
+        #multiply by half solid andle
+        Lline_tot = self._line_emiss_mean * 2*np.pi*self.fcov_blr
+        self._add_SEDcomponent(Lline_tot, 'wind_line')
+        return Lline_tot
+    
+    
+    def defineBLRGeom(self, r_l=5000, alpha_l=70, fcov=0.3):
+        """
+        Defines the wind geometry used when calculating the Cloudy SEDs and
+        time-delays
+        
+        Will check that the input covering fraction can be reached for given 
+        radius and launch angle, then generates a grid in theta and phi defining
+        the bi-conical wind.
+        
+        If the deisred fcov cannot be reached for input r_l and alpha_l, then
+        the code will increase alpha_l until fcov is reached. A warning will
+        also be printed!
+
+        Parameters
+        ----------
+        r_l : float or int
+            Launch radius - Units : Rg
+            The default is 300
+        alpha_l : float or int
+            Launch angle - Units : Deg
+            (See Fig. A1 and A2 in Hagen & Done 2023a)
+            The default is 80
+        fcov : float
+            Total wind covering fraction, i.e taking into account the wind
+            launched from BOTH sides of the disc. The effective covering fraction,
+            that an observer sees is simply half of this
+            Units : Omega/4pi (i.e 0<fcov<1)
+            The default is 0.8
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        alpha_l = self._checkAndAdjust_windAngle(alpha_l, fcov)
+        self.fcov_blr = fcov
+        self.alpha_l_blr = alpha_l
+        self.r_l_blr = r_l
+
+        #generating wind grids
+        #remember fcov = cos(theta_m)
+        self.cos_th_bins_blr = np.arange(0, fcov+self.dcos_thw, self.dcos_thw) #bin edges
+        self.phi_w_bins_blr = np.arange(0, 2*np.pi+self.dphi_w, self.dphi_w) #bin edges
+        
+        #Getting midpoint radii, height and distance for each bin
+        th_mid = np.arccos(self.cos_th_bins_blr[:-1] + self.dcos_thw/2)
+        
+        self.rw_mids_blr = self.r_l_blr * np.tan(np.deg2rad(self.alpha_l_blr))
+        self.rw_mids_blr /= (np.tan(np.deg2rad(self.alpha_l_blr)) - np.tan((np.pi/2) - th_mid))
+        
+        self.hw_mids_blr = self.rw_mids_blr * np.tan((np.pi/2) - th_mid)
+        self.dw_mids_blr = np.sqrt(self.rw_mids_blr**2 + self.hw_mids_blr**2)
+        
+        #Getting the disatnce used in Cloudy calculation
+        #For now setting as middle distance
+        self.DW_calc_blr = min(self.dw_mids_blr) + 0.5*(max(self.dw_mids_blr)-min(self.dw_mids_blr))
+        self.DW_calc_blr *= self.Rg
+    
+    
+    ###########################################################################
+    #---- Wind/Cloudy - Methods for running and handling Cloudy stuff
+    ###########################################################################
+    
+   
+    
+    
+    def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', component='wind',
+                     outdir='', flabel='', iterate=False):
         """
         Sets up and runs Cloudy
         
@@ -777,6 +871,9 @@ class AGNsed_CL_fullVar(AGNobject):
             mean => single CL run on mean intrinsic SED
             var => Runs CL for time-dependent intrinsic SED. Same number of
                 outputs as points in time-series used to generate initial SEDs
+        component : {'wind', 'blr'}
+            Which component to run for (i.e inner wind or outer BLR)
+            Note - If BLR iterate should be True, as needed for line emission
         outdir : str
             Output directory
         Ncpu : str or int
@@ -805,14 +902,8 @@ class AGNsed_CL_fullVar(AGNobject):
                 False : does not iterate
                 int : iterates <n> times where <n> is in
             The defauls is False
-        component : {'both', 'continuum', 'line'}
-            Which component to load after calculation finished
-            'both' : continuum and line
-            'continuum' : Line subtracted continuum
-            'line' : continuum free line emission
-            The default is 'continuum'
             
-        
+            
         Returns
         -------
         None.
@@ -837,7 +928,9 @@ class AGNsed_CL_fullVar(AGNobject):
             flabel = flabel+'_'
         
         #Checks if wind geometry has been defined
-        if hasattr(self, 'rw_mids'):
+        if hasattr(self, 'rw_mids') and component.lower()=='wind':
+            pass
+        elif hasattr(self, 'rw_mids_blr') and component.lower()=='blr':
             pass
         else:
             print('Warning!!')
@@ -853,6 +946,8 @@ class AGNsed_CL_fullVar(AGNobject):
             print()
             
             self.defineWindGeom()
+            self.defineBLRGeom()
+        
         
         if mode == 'mean':
             if hasattr(self, 'Lnu_intrinsic'):
@@ -862,7 +957,7 @@ class AGNsed_CL_fullVar(AGNobject):
             
             print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
-                                  simname=f'{flabel}Lmean_run', outdir=outdir,
+                                  simname=f'{flabel}Lmean_{component}_run', outdir=outdir,
                                   iterate=iterate)
             
             self.loadCL_run(outdir, which='mean', component=component)
@@ -902,7 +997,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     
-    def loadCL_run(self, outdir, which='mean', component='continuum'):
+    def loadCL_run(self, outdir, which='mean', component='wind'):
         """
         Loads and rebins the Cloudy simulation output
         Also subtracts out line emission, and sets the emission to 
@@ -927,11 +1022,10 @@ class AGNsed_CL_fullVar(AGNobject):
             mode='mean', while 'min' and 'max' will only exist if run with
             mode='var'
             The default is 'mean'.
-        component : {'both', 'continuum', 'line'}
+        component : {'wind', 'BLR'}
             Which component to load
-            'both' : continuum and line
-            'continuum' : Line subtracted continuum
-            'line' : continuum free line emission
+            'wind' : Free-bound continuum from a wind (CL files with wind suffix)
+            'BLR' : line emission from the BLR (CL files with blr suffix)
             The default is 'continuum'
         
 
@@ -942,42 +1036,101 @@ class AGNsed_CL_fullVar(AGNobject):
         """
         
         
-        cl = glob.glob(f'{outdir}/*L{which}_run.con')
+        cl = glob.glob(f'{outdir}/*L{which}_{component}_run.con')
+        if component.lower() == 'wind':
+            if len(cl) == 0:
+                #for backwards compatibility!
+                cl = glob.glob(f'{outdir}/*L{which}_run.con')
+            
+            Omega = 4*np.pi*self.fcov
+        
+        elif component.lower() == 'blr':
+            Omega = 4*np.pi*self.fcov_blr
+        
+        else:
+            raise ValueError('component must be wind or blr!!')
+            
             
         #Loading data files
         nu_cl, Lref, Lline = np.loadtxt(cl[0], usecols=(0, 5, 7), unpack=True)
         Lref = Lref-Lline
         
-        Omega = 4*np.pi*self.fcov #solid angle
+        #Omega = 4*np.pi*self.fcov #solid angle
         Lref /= Omega #Luminsoty per unit steradian (ergs/s/str)
         Lref /= nu_cl #ergs/s/str/Hz
         
-        Lline /= Omega #Line luminsity per unit steradian (ergs/s/st)
-        Lline /= nu_cl #ergs/s/st/Hz
+        Lline_bnd = self._rebin_line(nu_cl, Lline/nu_cl)
+        Lline_bnd /= Omega #Line luminsity per unit steradian (ergs/s/Hz/st)
 
-    
+
         #Rebinning onto same grid as rest of code
         Lref_int = interp1d(nu_cl, Lref)
         Lref_bnd = Lref_int(self.nu_grid)
-        
-        Lline_int = interp1d(nu_cl, Lline)
-        Lline_bnd = Lline_int(self.nu_grid)
 
+        
         #Storing as attribute
-        if component == 'continuum' or component == 'both':
+        if component.lower == 'wind':
             setattr(self, f'_ref_emiss_{which}', Lref_bnd)
         else:
             pass
         
-        if component == 'line' or component == 'both':
+        if component.lower() == 'blr':
             setattr(self, f'_line_emiss_{which}', Lline_bnd)
         else:
             pass
+    
+    
+    def _rebin_line(self, nu_cl, Lline):
+        """
+        Re-bins cloudy line emission onto same grid as rest of model
+        Slightly more complicated due to the fact that lines are intrinsically
+        narrow (i.e delta function).
+
+        Parameters
+        ----------
+        nu_cl : array
+            Cloudy frequency grid
+        Lline : array
+            Line luminosity o Cloudy grid
+            Units : ergs/s/Hz
+
+        Returns
+        -------
+        L_bnd : array
+            Line luminosity binned
+            Units : ergs/s/Hz
+
+        """
         
+        #first creating bin edges on model gridding
+        dnus = np.diff(self.nu_grid)
+        dnus = np.append(dnus, dnus[-1])
+        nu_l_edg = self.nu_grid - 0.5*dnus
+        nu_r_edg = self.nu_grid + 0.5*dnus
         
+        #getting bin widths on cloudy grid
+        dnu_cl = np.diff(nu_cl)
+        dnu_cl = np.append(dnu_cl, dnu_cl[-1])
+        
+        #converting to photons per bin
+        ph_line = Lline/(nu_cl*self.h) #photons/s/Hz
+        ph_line *= dnu_cl #photons/s (per bin)
+        
+        #re-binning
+        ph_bnd = np.zeros(len(dnus))
+        for i, dnu_i in enumerate(dnus):
+            idx_in = np.argwhere(np.logical_and(nu_cl >= nu_l_edg[i],
+                                                nu_cl < nu_r_edg[i]))[:, 0]
+            
+            ph_bnd[i] = np.sum(ph_line[idx_in])/dnu_i #ph/s/Hz
+            
+        #converting to luminosity
+        L_bnd = ph_bnd * self.nu_grid * self.h #ergs/s/Hz
+        return L_bnd
+    
     
     def _geneCL_SEDfiles(self, log_hden, log_Nh, Lnu, simname, outdir='',
-                         iterate=False):
+                         iterate=False, component='wind'):
         """
         For each theta grid in the wind, runs a Cloudy simulation
 
@@ -1010,6 +1163,8 @@ class AGNsed_CL_fullVar(AGNobject):
                 False : does not iterate
                 int : iterates <n> times where <n> is in
             The defauls is False
+        component : {'wind', 'blr'}
+            Whether to calculate for inner wind or blr
 
         Returns
         -------
@@ -1017,10 +1172,19 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
+        if component.lower() == 'wind':
+            fcov = self.fcov
+            dw_calc = self.DW_calc
+        
+        elif component.lower() == 'blr':
+            fcov = self.fcov_blr
+            dw_calc = self.DW_calc_blr
+        
+        
         self.cloudy.geneCL_SEDfile(self.nu_grid, Lnu, sedname=simname)
         Ltot = np.trapz(Lnu, self.nu_grid)
         
-        self.cloudy.geneCL_infile(log_hden, log_Nh, self.fcov, np.log10(self.DW_calc),
+        self.cloudy.geneCL_infile(log_hden, log_Nh, fcov, np.log10(dw_calc),
                                   Ltot, sedname=simname, fname=simname, iterate=iterate)
 
         os.system(f'./run {simname}')
