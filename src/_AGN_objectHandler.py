@@ -986,6 +986,35 @@ class AGNobject:
         
         else:
             return None
+    
+    
+    def set_energy(self, Emin, Emax, nE):
+        """
+        Re-sets the energy range and resolution
+
+        Parameters
+        ----------
+        Emin : float
+            New min energy
+        Emax : float
+            New max energy
+        nE : int
+            Number of energy bins (geometrically spaced)
+            
+        
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        self.Emin = Emin
+        self.Emax = Emax
+        self.numE = nE
+        
+        #re-initiate with new grid
+        self.__init__(self.M, self.D, np.log10(self.mdot), self.a, self.z)
         
         
 if __name__ == '__main__':
