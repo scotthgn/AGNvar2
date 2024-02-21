@@ -787,6 +787,32 @@ class AGNsed_CL_fullVar(AGNobject):
         return Lline_tot
     
     
+    def broadenLines(self, v):
+        """
+        Velocity broadens the line emission (if loaded) by convolving with a
+        Gaussian kernel
+        
+        Note! This assumes a constant velocity, implying that the gaussian must
+        change width as it moves through the SED 
+            (Since \Delta E / E0 = v/c)
+        Hence we do the slow way through a loop rather than using FFTs
+
+        Parameters
+        ----------
+        v : float
+            Rotational velocity width of Gaussian
+            (Typically >~1000km/s for the BLR)
+            Units : km/s
+
+        Returns
+        -------
+        None.
+
+        """
+        return
+    
+    
+    
     def defineBLRGeom(self, r_l=5000, alpha_l=70, fcov=0.3):
         """
         Defines the wind geometry used when calculating the Cloudy SEDs and
@@ -847,11 +873,11 @@ class AGNsed_CL_fullVar(AGNobject):
         self.DW_calc_blr *= self.Rg
     
     
+    
+    
     ###########################################################################
     #---- Wind/Cloudy - Methods for running and handling Cloudy stuff
     ###########################################################################
-    
-   
     
     
     def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', component='wind',
@@ -958,7 +984,7 @@ class AGNsed_CL_fullVar(AGNobject):
             print('Running Cloudy for mean')
             self._geneCL_SEDfiles(log_hden, log_Nh, self.Lnu_intrinsic, 
                                   simname=f'{flabel}Lmean_{component}_run', outdir=outdir,
-                                  iterate=iterate)
+                                  iterate=iterate, component=component)
             
             self.loadCL_run(outdir, which='mean', component=component)
         
@@ -983,13 +1009,15 @@ class AGNsed_CL_fullVar(AGNobject):
             Lnu_max = self.Lintrinsic_max
             
             print('Running Cloudy for Lnu_min')
-            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, simname=f'{flabel}Lmin_run', 
-                                  outdir=outdir, iterate=iterate)
+            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_min, 
+                                  simname=f'{flabel}Lmin_{component}_run', 
+                                  outdir=outdir, iterate=iterate, component=component)
             print()
             
             print('Running Cloudy for Lnu_max')
-            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, simname=f'{flabel}Lmax_run',
-                                  outdir=outdir, iterate=iterate)
+            self._geneCL_SEDfiles(log_hden, log_Nh, Lnu_max, 
+                                  simname=f'{flabel}Lmax_{component}_run',
+                                  outdir=outdir, iterate=iterate, component=component)
             print()
             
             self.loadCL_run(outdir, which='min', component=component)
