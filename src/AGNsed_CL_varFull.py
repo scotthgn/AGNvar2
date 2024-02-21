@@ -787,7 +787,7 @@ class AGNsed_CL_fullVar(AGNobject):
         return Lline_tot
     
     
-    def broadenLines(self, v):
+    def broadenLines(self, v, which='mean'):
         """
         Velocity broadens the line emission (if loaded) by convolving with a
         Gaussian kernel
@@ -803,13 +803,82 @@ class AGNsed_CL_fullVar(AGNobject):
             Rotational velocity width of Gaussian
             (Typically >~1000km/s for the BLR)
             Units : km/s
+        which : {'mean', 'min', 'max'}
+            Whether to broaden the emissivity used for mean SED or variability
+            calculation
 
         Returns
         -------
         None.
 
         """
-        return
+        
+        if hasattr(self, f'_line_emiss_{which}'):
+            emiss = getattr(self, f'_line_emiss_{which}')
+        else:
+            raise AttributeError('No relevant cloudy run loaded!')
+        
+        em_new = self._do_broaden(v, emiss)
+        setattr(self, f'_line_emiss_{which}', em_new)
+
+    
+    
+    
+    def _do_broaden(self, v, emiss):
+        """
+        Applies the line broadening by a gaussian kernel
+
+        Parameters
+        ----------
+        v : float
+            Rotational velocity width of Gaussian
+            (Typically >~1000km/s for the BLR)
+            Units : km/s
+        emiss : array
+            Non-broadened line emissivity array
+
+        Returns
+        -------
+        None.
+
+        """
+
+        def _gaus(self, v, lam0):
+            """
+            Gaussian kernel used for broadening
+
+            Parameters
+            ----------
+            v : float
+                Velocity
+                Units : km/s
+            lam0 : float
+                Rest wavelength
+
+            Returns
+            -------
+            gaus : array
+                Gaussian centered on lam0
+
+            """
+
+            sig = (v/3e5) * lam0 #sigma, velocity dispersin
+            gaus = 1/(sig*np.sqrt(2*np.pi))
+            gaus *= np.exp(-0.5*((self.wave_grid - lam0)/sig)**2)
+            #print(gaus)
+            #normalising such that sum is 1
+            #allows straght forward multiplcation within convolution integrand
+            norm = 1/np.sum(gaus)
+            gaus *= norm
+            return gaus
+        
+        #doing convolution
+        emiss_new = np.zeros(len(emiss))
+        for i, wi in enumerate(self.wave_grid):
+            gi = _gaus(self, v, wi)
+            emiss_new[i] = np.sum(gi*emiss)
+        
+        return emiss_new
     
     
     
