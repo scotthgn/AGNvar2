@@ -569,7 +569,8 @@ class AGNsed_CL_fullVar(AGNobject):
         Ncpu = self._getNcpu(Ncpu)
         pool = Pool(Ncpu, maxtasksperchild=1)
         Lref_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
-        for lann in tqdm(pool.imap_unordered(self._calc_windLum_ann, didxs),
+        pfunc = partial(self._calc_windLum_ann, which='wind')
+        for lann in tqdm(pool.imap_unordered(pfunc, didxs),
                          total=len(didxs)):
             Lref_var += lann
         
@@ -580,7 +581,7 @@ class AGNsed_CL_fullVar(AGNobject):
         return self.Lref_var
 
     
-    def _calc_windLum_ann(self, didx):
+    def _calc_windLum_ann(self, didx, which='wind'):
         """
         Calculates the wind luminosity from one annulus
 
@@ -588,6 +589,8 @@ class AGNsed_CL_fullVar(AGNobject):
         ----------
         didx : int
             Current radial index for wind
+        which : {'wind', 'blr'}
+            Which component to calculate for
 
         Returns
         -------
@@ -595,7 +598,13 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
-        phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
+        if which == 'wind':
+            phi_w_mids = self.phi_w_bins[:-1] + self.dphi_w/2
+        elif which == 'blr':
+            phi_w_mids = self.phi_w_bins_blr[:-1] + self.dphi_w/2
+        else:
+            raise ValueError('which must be wind or blr!!')
+            
         dOmega = self.dcos_thw * self.dphi_w
         
         Lr_ann = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
@@ -607,7 +616,7 @@ class AGNsed_CL_fullVar(AGNobject):
         return Lr_ann
         
         
-    def _get_emiss_t_grd(self, didx, phi):
+    def _get_emiss_t_grd(self, didx, phi, which='wind'):
         """
         Calculates the time-dependent emissivity from a Cloudy grid point
         in the wind
@@ -618,6 +627,9 @@ class AGNsed_CL_fullVar(AGNobject):
             The current radial index for the wind grid
         phi : float
             Azimuthal midtpoint in grid
+        which : {'wind', 'blr'}
+            Determines which component to calculate time-lag for
+            As well as which emissivity
 
         Returns
         -------
@@ -627,8 +639,21 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
+        if which == 'wind':
+            tauw = self._tau_wnd(phi, self.rw_mids[didx], self.hw_mids[didx])
+            emiss_min = self._ref_emiss_min
+            emiss_max = self._ref_emiss_max
+        
+        elif which == 'blr':
+            tauw = self._tau_wnd(phi, self.rw_mids_blr[didx], self.hw_mids_blr[didx])
+            emiss_min = self._line_emiss_min
+            emiss_max = self._line_emiss_max
+        
+        else:
+            raise ValueError('which must be wind or blr!!')
+        
+        
         #Caclulating SED seen by wind at time t
-        tauw = self._tau_wnd(didx, phi)
         tw = self.propfluc.ts - tauw
         tmax = tw[-1]
         
@@ -660,14 +685,14 @@ class AGNsed_CL_fullVar(AGNobject):
         Sfac /= (self.Lintrinsic_min[:, np.newaxis] - self.Lintrinsic_max[:, np.newaxis])
         Sfac = np.ma.masked_invalid(Sfac) #Masking Nan values (usually at edge where we have divide by 0!)
         
-        ref_emiss = Sfac * self._ref_emiss_min[:, np.newaxis]
-        ref_emiss += (1-Sfac)*self._ref_emiss_max[:, np.newaxis]
+        ref_emiss = Sfac * emiss_min[:, np.newaxis]
+        ref_emiss += (1-Sfac)*emiss_max[:, np.newaxis]
         
         return ref_emiss
     
     
 
-    def _tau_wnd(self, didx, phi_w):
+    def _tau_wnd(self, phi_w, rw, hw):
         """
         Calculates the time-delay to a wind grid point as seen by the observer
 
@@ -684,9 +709,6 @@ class AGNsed_CL_fullVar(AGNobject):
             Time delay to wind grid point
 
         """
-        
-        rw = self.rw_mids[didx]
-        hw = self.hw_mids[didx]
 
         
         tau_wnd = np.sqrt(rw**2 + (hw)**2)
@@ -785,6 +807,80 @@ class AGNsed_CL_fullVar(AGNobject):
         Lline_tot = self._line_emiss_mean * 2*np.pi*self.fcov_blr
         self._add_SEDcomponent(Lline_tot, 'wind_line')
         return Lline_tot
+    
+    
+    def evolve_lineSED(self, Ncpu='max-1'):
+        """
+        Takes Cloudy line output and evolves - following the same procedure as
+        in evolve_windSED()
+        
+        Parameters
+        ----------
+        Ncpu : str or int
+            Number of cpu cores to use
+            If int : treated as explicit number of CPU cores
+                    Note, if more than max available cores, then will reduce
+                    to maximum available on system
+            
+            If 'max' : Will use system max 
+            
+            If 'max-<int>' : Will use system max - int (e.g 1 or 2 etc)
+                    Note, if int >= max, will default to 1 core as cannot use
+                    negative number of cores...
+            
+            The default is 'max-1'
+
+        Returns
+        -------
+        None.
+
+        """
+        
+        #doing checks!
+        if hasattr(self, '_line_emiss_min'):
+            pass
+        else:
+            print('Error! No variable Cloudy blr SEDs loaded!!'
+                  ' Either load Cloudy output using .loadCL_run (make sure'
+                  ' you do this for the output corresponding to the currently'
+                  ' set wind parameters) or generate new Cloudy output using'
+                  ' .runCLOUDYmod')
+            
+            exit()
+            
+        #If old save file this wont have been stored...
+        #This only exists so I don't need to re-run the earlier models..!
+        if hasattr(self, 'Lintrinsic_min'):
+            pass
+        else:
+            self.Lintrinsic_min = np.amin(self.Lintrinsic_var, axis=-1)
+            self.Lintrinsic_max = np.amax(self.Lintrinsic_var, axis=-1)
+        
+        #Also need to check if Lnu_intrinsic exists - for when time delay greater than t!!
+        if hasattr(self, 'Lnu_intrinsic'):
+            pass
+        else:
+            self.make_intrinsicSED(reprocess=self._reverb)
+        
+
+        didxs = np.arange(0, len(self.dw_mids_blr), 1)
+        
+        print('Evolving Lines...')
+        #Setting up pool object
+        Ncpu = self._getNcpu(Ncpu)
+        pool = Pool(Ncpu, maxtasksperchild=1)
+        Lline_var = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
+        pfunc = partial(self._calc_windLum_ann, which='blr')
+        for lann in tqdm(pool.imap_unordered(pfunc, didxs),
+                         total=len(didxs)):
+            Lline_var += lann
+        
+        
+        self.Lline_var = Lline_var
+        self._add_varComponent(Lline_var, 'lines')
+        
+        return self.Lline_var
+        
     
     
     def broadenLines(self, v, which='mean'):
