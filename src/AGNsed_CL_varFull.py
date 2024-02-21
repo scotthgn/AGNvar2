@@ -1262,7 +1262,7 @@ class AGNsed_CL_fullVar(AGNobject):
 
         
         #Storing as attribute
-        if component.lower == 'wind':
+        if component.lower() == 'wind':
             setattr(self, f'_ref_emiss_{which}', Lref_bnd)
         else:
             pass
