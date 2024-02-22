@@ -609,7 +609,7 @@ class AGNsed_CL_fullVar(AGNobject):
         
         Lr_ann = np.zeros((len(self.Egrid), len(self.propfluc.ts)))
         for j, phi in enumerate(phi_w_mids):
-            ref_grd = self._get_emiss_t_grd(didx, phi)
+            ref_grd = self._get_emiss_t_grd(didx, phi, which=which)
             lr = ref_grd * dOmega
             Lr_ann += lr
         
