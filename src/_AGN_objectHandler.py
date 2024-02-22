@@ -93,7 +93,10 @@ class AGNobject:
         
         #Energy/frequency grid
         self.Egrid = np.geomspace(self.Emin, self.Emax, self.numE)
+        self._Egrid_default = np.geomspace(1e-4, 1e4, 1000)
         self.nu_grid = (self.Egrid * u.keV).to(u.Hz,
+                                equivalencies=u.spectral()).value
+        self._nu_grid_default = (self._Egrid_default * u.keV).to(u.Hz,
                                 equivalencies=u.spectral()).value
         self.wave_grid = (self.Egrid * u.keV).to(u.AA,
                                 equivalencies=u.spectral()).value
@@ -988,33 +991,6 @@ class AGNobject:
             return None
     
     
-    def set_energy(self, Emin, Emax, nE):
-        """
-        Re-sets the energy range and resolution
-
-        Parameters
-        ----------
-        Emin : float
-            New min energy
-        Emax : float
-            New max energy
-        nE : int
-            Number of energy bins (geometrically spaced)
-            
-        
-
-        Returns
-        -------
-        None.
-
-        """
-        
-        self.Emin = Emin
-        self.Emax = Emax
-        self.numE = nE
-        
-        #re-initiate with new grid
-        self.__init__(self.M, self.D, np.log10(self.mdot), self.a, self.z)
         
         
 if __name__ == '__main__':

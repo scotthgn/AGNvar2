@@ -11,6 +11,7 @@ AGNobject
 
 import numpy as np
 import astropy.units as u
+from scipy.interpolate import interp1d
 
 from myNTHCOMP import mdonthcomp
 
@@ -282,7 +283,6 @@ class _SpecCalc:
         
         """
         
-        
         T4_ann = self._agn.calc_Tnt(r, fmd)
         if reprocess == True:
             if Lx is None:
@@ -299,17 +299,35 @@ class _SpecCalc:
             kTann = np.array([kTann])
         
         gammas, ktws, kTann = self._gene_CompInArrs(gamma, ktw, kTann)
-        ph_nth = mdonthcomp(self._agn.Egrid, gammas, ktws, kTann)
-        #converting to erg/s/Hz
-        ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
-                                            equivalencies=u.spectral()).value
-        
-        
         
         norm = self._agn.sigma_sb * T4_ann * 4*np.pi*r*dr * self._agn.Rg**2
-        radiance = np.trapz(ph_nth, self._agn.nu_grid, axis=0)
-        
-        Lnu_ann = norm * (ph_nth/radiance)
+        #If energy limits have been changed 
+        #Need to calculate over full SED and interpolate - to avoid normalisation issues
+        if self._agn.Emin > 1e-4 or self._agn.Emax < 1e4:
+            ph_nth = mdonthcomp(self._agn._Egrid_default, gammas, ktws, kTann)
+            #converting to erg/s/Hz
+            ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
+                                                equivalencies=u.spectral()).value
+    
+            radiance = np.trapz(ph_nth, self._agn._nu_grid_default, axis=0)
+            Lnu_def = norm * (ph_nth/radiance)
+            #print(max(Lnu_def))
+            Lnu_int = interp1d(self._agn._nu_grid_default, Lnu_def,
+                               axis=0, kind='linear')
+            
+            Lnu_ann = Lnu_int(self._agn.nu_grid) 
+
+
+        else:
+            ph_nth = mdonthcomp(self._agn.Egrid, gammas, ktws, kTann)
+            #converting to erg/s/Hz
+            ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
+                                                equivalencies=u.spectral()).value
+            
+            radiance = np.trapz(ph_nth, self._agn.nu_grid, axis=0)
+            Lnu_ann = norm * (ph_nth/radiance)
+
+            
         return Lnu_ann
     
     
@@ -465,7 +483,7 @@ class _SpecCalc:
         Lnu_ann : 2D-array, shape=(len(Egrid), len(fmd))
 
         """
-        
+        import matplotlib.pyplot as plt
         #Power dissipated in corona
         T4_ann = self._agn.calc_Tnt(r, fmd)
         Ld_ann = self._agn.sigma_sb * T4_ann * 4*np.pi*r*dr * self._agn.Rg**2 #erg/s
@@ -479,16 +497,35 @@ class _SpecCalc:
         
         #Calculating spectral shape
         gammas, ktes, ktss = self._gene_CompInArrs(gamma, kte, kts)
-        ph_nth = mdonthcomp(self._agn.Egrid, gammas, ktes, ktss)
-        #converting to erg/s/Hz
-        ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
-                                            equivalencies=u.spectral()).value
-        
+
         #normalising by luminsoity in annulus
         norm = Ld_ann + Ls_ann
-        radiance = np.trapz(ph_nth, self._agn.nu_grid, axis=0)
+        #If energy limits have been changed 
+        #Need to calculate over full SED and interpolate - to avoid normalisation issues
+        if self._agn.Emin > 1e-4 or self._agn.Emax < 1e4:
+            ph_nth = mdonthcomp(self._agn._Egrid_default, gammas, ktes, ktss)
+            #converting to erg/s/Hz
+            ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
+                                                equivalencies=u.spectral()).value
+    
+            radiance = np.trapz(ph_nth, self._agn._nu_grid_default, axis=0)
+            Lnu_def = norm * (ph_nth/radiance)
+            #print(max(Lnu_def))
+            Lnu_int = interp1d(self._agn._nu_grid_default, Lnu_def,
+                               axis=0, kind='linear')
+            
+            Lnu_ann = Lnu_int(self._agn.nu_grid) 
+
+        else:
+            ph_nth = mdonthcomp(self._agn.Egrid, gammas, ktes, ktss)
+            #converting to erg/s/Hz
+            ph_nth = (ph_nth * u.erg/u.s/u.keV).to(u.erg/u.s/u.Hz, 
+                                                equivalencies=u.spectral()).value
+            
+            radiance = np.trapz(ph_nth, self._agn.nu_grid, axis=0)
+            Lnu_ann = norm * (ph_nth/radiance)
         
-        Lnu_ann = norm * (ph_nth/radiance)
+        
         return Lnu_ann
     
     
