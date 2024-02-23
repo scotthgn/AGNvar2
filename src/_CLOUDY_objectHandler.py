@@ -107,12 +107,14 @@ class CLOUDY_object:
             f.write(f'stop column density {log_Nh} \n')
             f.write('constant density \n')
             
-            if isinstance(iterate, int):
-                f.write(f'iterate {iterate}\n')
+            
+            if iterate==True:
+                f.write('iterate to convergence \n')
+            elif iterate == False:
+                pass
             else:
-                if isinstance(iterate, bool):
-                    if iterate == True:
-                        f.write('iterate to convergence \n')
+                if isinstance(iterate, int):
+                    f.write(f'iterate {iterate}\n')
                 else:
                     raise ValueError('iterate must be bool or int!')
                     
