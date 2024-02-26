@@ -861,13 +861,16 @@ class AGNobject:
         
         #Extracting desired component
         if component == 'all':
+            Ltot_all = self.Lintrinsic_var
+            Lmean = self.Lnu_intrinsic
             if hasattr(self, 'Lref_var'):
-                Ltot_all = self.Lintrinsic_var + self.Lref_var
-                Lmean = self.Lnu_intrinsic + self.make_windSED()
-            else:
-                Ltot_all = self.Lintrinsic_var
-                Lmean = self.Lnu_intrinsic
-        
+                Ltot_all += self.Lref_var
+                Lmean += self.make_windSED()
+            
+            if hasattr(self, 'Lline_var'):
+                Ltot_all += self.Lline_var
+                Lmean += self.make_lineSED()
+            
         elif component == 'intrinsic':
             Ltot_all = self.Lintrinsic_var
             Lmean = self.Lnu_intrinsic
