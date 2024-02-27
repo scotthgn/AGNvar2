@@ -883,7 +883,7 @@ class AGNsed_CL_fullVar(AGNobject):
         
     
     
-    def broadenLines(self, v, which='mean'):
+    def broadenLines(self, v, which='mean', comp='blr'):
         """
         Velocity broadens the line emission (if loaded) by convolving with a
         Gaussian kernel
@@ -902,6 +902,9 @@ class AGNsed_CL_fullVar(AGNobject):
         which : {'mean', 'min', 'max'}
             Whether to broaden the emissivity used for mean SED or variability
             calculation
+        comp : {'blr', 'wnd'}
+            Whether to apply to emission from the wind or the BLR
+            The default is 'blr'
 
         Returns
         -------
@@ -909,13 +912,20 @@ class AGNsed_CL_fullVar(AGNobject):
 
         """
         
-        if hasattr(self, f'_line_emiss_{which}'):
-            emiss = getattr(self, f'_line_emiss_{which}')
+        if comp.lower() == 'blr':
+            attr_name = f'_line_emiss_{which}'   
+        elif comp.lower() == 'wind':
+            attr_name = f'_ref_emiss_{which}'
+        else:
+            raise ValueError('comp must be blr or wind!')
+        
+        if hasattr(self, attr_name):
+            emiss = getattr(self, attr_name)
         else:
             raise AttributeError('No relevant cloudy run loaded!')
         
         em_new = self._do_broaden(v, emiss)
-        setattr(self, f'_line_emiss_{which}', em_new)
+        setattr(self, attr_name, em_new)
 
     
     
@@ -1046,7 +1056,7 @@ class AGNsed_CL_fullVar(AGNobject):
     
     
     def runCLOUDYmod(self, log_hden=12, log_Nh=23, mode='mean', component='wind',
-                     outdir='', flabel='', iterate=False):
+                     outdir='', flabel='', iterate=False, lopt='continuum'):
         """
         Sets up and runs Cloudy
         
@@ -1093,6 +1103,9 @@ class AGNsed_CL_fullVar(AGNobject):
                 False : does not iterate
                 int : iterates <n> times where <n> is in
             The defauls is False
+        lopt : {'continuum', 'line', 'both'}:
+            Whether to load just continuum, just line, or both
+            The default is 'continuum'
             
             
         Returns
@@ -1151,7 +1164,7 @@ class AGNsed_CL_fullVar(AGNobject):
                                   simname=f'{flabel}Lmean_{component}_run', outdir=outdir,
                                   iterate=iterate, component=component)
             
-            self.loadCL_run(outdir, which='mean', component=component)
+            self.loadCL_run(outdir, which='mean', component=component, lopt=lopt)
         
         elif mode == 'var':
             if hasattr(self, 'Lintrinsic_var'):
@@ -1185,12 +1198,13 @@ class AGNsed_CL_fullVar(AGNobject):
                                   outdir=outdir, iterate=iterate, component=component)
             print()
             
-            self.loadCL_run(outdir, which='min', component=component)
-            self.loadCL_run(outdir, which='max', component=component)
+            self.loadCL_run(outdir, which='min', component=component, lopt=lopt)
+            self.loadCL_run(outdir, which='max', component=component, lopt=lopt)
     
     
     
-    def loadCL_run(self, outdir, which='mean', component='wind'):
+    def loadCL_run(self, outdir, which='mean', component='wind',
+                   lopt='continuum'):
         """
         Loads and rebins the Cloudy simulation output
         Also subtracts out line emission, and sets the emission to 
@@ -1220,7 +1234,9 @@ class AGNsed_CL_fullVar(AGNobject):
             'wind' : Free-bound continuum from a wind (CL files with wind suffix)
             'BLR' : line emission from the BLR (CL files with blr suffix)
             The default is 'continuum'
-        
+        lopt : {'continuum', 'line', 'both'}
+            Whether to load just continuum, just line, or both
+            The default is 'continuum'
 
         Returns
         -------
@@ -1259,16 +1275,24 @@ class AGNsed_CL_fullVar(AGNobject):
         #Rebinning onto same grid as rest of code
         Lref_int = interp1d(nu_cl, Lref)
         Lref_bnd = Lref_int(self.nu_grid)
-
         
+        if lopt.lower() == 'continuum':
+            Lload = Lref_bnd
+        elif lopt.lower() == 'line':
+            Lload = Lline_bnd
+        elif lopt.lower() == 'both':
+            Lload = Lref_bnd + Lline_bnd
+        else:
+            raise ValueError('lopt must be: continuum, line, or both!')
+
         #Storing as attribute
         if component.lower() == 'wind':
-            setattr(self, f'_ref_emiss_{which}', Lref_bnd)
+            setattr(self, f'_ref_emiss_{which}', Lload)
         else:
             pass
         
         if component.lower() == 'blr':
-            setattr(self, f'_line_emiss_{which}', Lline_bnd)
+            setattr(self, f'_line_emiss_{which}', Lload)
         else:
             pass
     
