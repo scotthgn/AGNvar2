@@ -683,7 +683,7 @@ class AGNobject:
     
     
     def get_Lcurve_fromRSP(self, rspfile, arffile=None, as_frac=True, component='all',
-                           Emin=None, Emax=None):
+                           Emin=None, Emax=None, abs_file=None):
         """
         Generates a light-curve, but using a telescope response file rather
         than assuming a top hat (e.g the swift uvot uvw2 band-pass)
@@ -717,6 +717,12 @@ class AGNobject:
             Max energy to integrate the response to
             If None, uses the maximum energy in the response file
             Units : keV
+        abs_file : str
+            File containing absorption coefficients as a function of energy
+            Must be in two column-format, corresponding to (Es, abs_coeffs)
+            If included, then the absoprtion model is taken into account when
+            calculating the light-curves
+            The default is None
 
         Returns
         -------
@@ -756,19 +762,27 @@ class AGNobject:
             eidx_r = np.abs(rEm - Emax).argmin()
             eidx_r += 1 #becuase python...
         
+        #loading abs-model if included
+        rEm = rEm[eidx_l:eidx_r]
+        if abs_file != None:
+            E_abs, abs_coeff = np.loadtxt(abs_file, unpack=True)
+            abs_int = interp1d(E_abs, abs_coeff, kind='linear')
+            rsp = rsp[eidx_l:eidx_r] * abs_int(rEm)
+        else:
+            rsp = rsp[eidx_l:eidx_r]
+            
+        
         #for each time-step, interpolating SED and then multiplying with eff area
         LC_out = np.array([])
         for i in range(len(Ltot_all[0, :])):
             Lt_interp = interp1d(self.E_obs, Ltot_all[:, i], kind='linear')
             
-            LC_t = np.trapz(Lt_interp(rEm[eidx_l:eidx_r])*rsp[eidx_l:eidx_r],
-                            rEm[eidx_l:eidx_r]) #Multiplying with response
+            LC_t = np.trapz(Lt_interp(rEm)*rsp, rEm) #Multiplying with response
             LC_out = np.append(LC_out, LC_t)
         
         if as_frac == True:
             Lm_interp = interp1d(self.E_obs, Lmean, kind='linear')
-            Lm_filt = np.trapz(Lm_interp(rEm[eidx_l:eidx_r])*rsp[eidx_l:eidx_r],
-                               rEm[eidx_l:eidx_r])
+            Lm_filt = np.trapz(Lm_interp(rEm)*rsp, rEm)
             
             LC_out /= Lm_filt
         
