@@ -682,7 +682,8 @@ class AGNobject:
     
     
     
-    def get_Lcurve_fromRSP(self, rspfile, as_frac=True, component='all'):
+    def get_Lcurve_fromRSP(self, rspfile, arffile=None, as_frac=True, component='all',
+                           Emin=None, Emax=None):
         """
         Generates a light-curve, but using a telescope response file rather
         than assuming a top hat (e.g the swift uvot uvw2 band-pass)
@@ -697,6 +698,10 @@ class AGNobject:
         ----------
         rspfile : str
             Input response file
+        arffile : str
+            Input axuillary response file
+            Necessary when using X-ray rsp files to get correct efficteve area
+            (not necessary for UVOT, as there rsp file gives effective area)
         as_frac : TYPE, optional
             If True, then output is normalised by the mean SED, so units F/Fmean
             If False, then output has the currently set units (i.e ergs/s/Hz, etc)
@@ -704,6 +709,14 @@ class AGNobject:
         component : {'all', 'intrinsic', 'wind_ref', 'disc', 'warm', 'hot'}, optional
             Specify spectral component to extract. If 'all', then uses total SED. 
             The default is 'all'.
+        Emin : float
+            Min energy to start integrating the response file over
+            If None, uses the minimum energy in the response file
+            Units : keV
+        Emax : float
+            Max energy to integrate the response to
+            If None, uses the maximum energy in the response file
+            Units : keV
 
         Returns
         -------
@@ -728,32 +741,93 @@ class AGNobject:
         Ltot_all /= self.Egrid[:, np.newaxis]
         Lmean /= self.Egrid
         
-        #Importing repsonse matrix
-        with fits.open(rspfile) as rf:
-            rmat = rf[1].data #response matrix
-            rEl = np.array(rmat.field(0)) #left E bin edge
-            rEr = np.array(rmat.field(1)) #right E bin edge
-            rsp = np.array(rmat.field(5)) #Filter response (cm^2)
+        #importing instrument response (effective area)
+        rEm, rsp = self._load_rsp(rspfile, arffile)
         
-        rEm = rEl + 0.5*(rEr - rEl) #midpoint
+        #getting integration range
+        if Emin == None:
+            eidx_l = 0
+        else:
+            eidx_l = np.abs(rEm - Emin).argmin()
         
-        #for each time-step, interpolating SED and then convolving with filter
-        #response
+        if Emax == None:
+            eidx_r = None
+        else:
+            eidx_r = np.abs(rEm - Emax).argmin()
+            eidx_r += 1 #becuase python...
+        
+        #for each time-step, interpolating SED and then multiplying with eff area
         LC_out = np.array([])
         for i in range(len(Ltot_all[0, :])):
             Lt_interp = interp1d(self.E_obs, Ltot_all[:, i], kind='linear')
             
-            LC_t = np.trapz(Lt_interp(rEm)*rsp, rEm) #Convolving with response
+            LC_t = np.trapz(Lt_interp(rEm[eidx_l:eidx_r])*rsp[eidx_l:eidx_r],
+                            rEm[eidx_l:eidx_r]) #Multiplying with response
             LC_out = np.append(LC_out, LC_t)
         
         if as_frac == True:
             Lm_interp = interp1d(self.E_obs, Lmean, kind='linear')
-            Lm_filt = np.trapz(Lm_interp(rEm)*rsp, rEm)
+            Lm_filt = np.trapz(Lm_interp(rEm[eidx_l:eidx_r])*rsp[eidx_l:eidx_r],
+                               rEm[eidx_l:eidx_r])
             
             LC_out /= Lm_filt
         
         return LC_out
     
+    
+    
+    def _load_rsp(self, rsp_file, arf_file):
+        """
+        Loads the response (effective area) of the detector given an input
+        rsp and arf file
+        Assumes rsp and arf files follow standard format (as used in Xspec)
+
+        Parameters
+        ----------
+        rsp_file : str
+            File containing response matrix
+        arf_file : str
+            File containing auxillary response 
+
+        Returns
+        -------
+        Em : array
+            Midpoint energies within response curve
+            Units : keV
+        rsp : array
+            Detector effective area
+            Units : cm^2
+
+        """
+        
+        
+        #loading rsp file first
+        with fits.open(rsp_file, mode='readonly') as hdul:
+            dat = hdul['MATRIX'].data
+            
+            El = np.array(dat.field(0)) #left energy bin edges
+            Er = np.array(dat.field(1)) #right bin edges
+            matrix = np.array(dat.field(5)) #response matrix
+            
+        #to get response matrix we sum over channels in response matrix
+        rsp = np.empty(len(El))
+        for i, mat in enumerate(matrix):
+            rsp[i] = np.sum(mat)
+            
+        
+        #now multiplying by arf (if given) to get actual effective area
+        if arf_file != None:
+            with fits.open(arf_file, mode='readonly') as hdul:
+                adat = hdul['SPECRESP'].data
+                arf_rsp = np.array(adat.field(2))
+            
+            rsp *= arf_rsp
+            
+        
+        #getting Ebin midtpoints
+        Em = El + 0.5*(Er - El)
+        return Em, rsp
+        
     
     
     def _extractLC(self, Ltot_all, Lmean, band, band_width, as_frac):
