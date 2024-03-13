@@ -733,6 +733,8 @@ class AGNobject:
         
         Ltot_all, Lmean = self._LC_extractionCHECKS(component)
         
+        print(Lmean[100], Ltot_all[100, 100])
+        
         #converting to kev (photons/s/keV)
         Ltot_all = (Ltot_all*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
                                         equivalencies=u.spectral()).value
@@ -952,12 +954,12 @@ class AGNobject:
             Ltot_all = self.Lintrinsic_var
             Lmean = self.Lnu_intrinsic
             if hasattr(self, 'Lref_var'):
-                Ltot_all += self.Lref_var
-                Lmean += self.make_windSED()
+                Ltot_all = Ltot_all + self.Lref_var
+                Lmean = Lmean + self.make_windSED()
             
             if hasattr(self, 'Lline_var'):
-                Ltot_all += self.Lline_var
-                Lmean += self.make_lineSED()
+                Ltot_all = Ltot_all + self.Lline_var
+                Lmean = Lmean + self.make_lineSED()
             
         elif component == 'intrinsic':
             Ltot_all = self.Lintrinsic_var
