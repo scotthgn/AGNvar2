@@ -732,9 +732,8 @@ class AGNobject:
         """
         
         Ltot_all, Lmean = self._LC_extractionCHECKS(component)
-        
-        print(Lmean[100], Ltot_all[100, 100])
-        
+       
+ 
         #converting to kev (photons/s/keV)
         Ltot_all = (Ltot_all*u.erg/u.s/u.Hz).to(u.keV/u.s/u.keV,
                                         equivalencies=u.spectral()).value
